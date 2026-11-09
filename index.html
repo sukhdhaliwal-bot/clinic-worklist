@@ -1081,16 +1081,22 @@ dialog[open]{animation:up 180ms var(--ease)}
 
   /* ---------- Toast with Undo ---------- */
   let toastTimer, undoFn = null;
-  function showToast(head, body, onUndo, ms = 6000) {
+  function showToast(head, body, onUndo, ms = 6000, label = "Undo") {
     $("toast-msg").innerHTML = `<b>${esc(head)}</b>${body ? esc(body) : ""}`;
     undoFn = onUndo;
+    $("toast-undo").textContent = label;
     $("toast-undo").hidden = !onUndo;
     $("toast").classList.add("show");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(hideToast, ms);
   }
   function hideToast() { $("toast").classList.remove("show"); undoFn = null; }
-  $("toast-undo").addEventListener("click", () => { if (undoFn) undoFn(); hideToast(); showToast("Undone", "", null, 1800); });
+  $("toast-undo").addEventListener("click", () => {
+    const fn = undoFn, wasUndo = $("toast-undo").textContent === "Undo";
+    hideToast();
+    if (fn) fn();
+    if (wasUndo) showToast("Undone", "", null, 1800);
+  });
 
   /* ---------- Tabs ---------- */
   let view = "dictate";
@@ -1114,9 +1120,14 @@ dialog[open]{animation:up 180ms var(--ease)}
   // - Safari sometimes ends a session at once with no error and no words:
   //   that is retried once automatically, then you're told plainly;
   // - Safari sometimes never fires "end" after stop: a backstop finishes it.
+  // - After the phone has been locked or the app was in the background, Safari's
+  //   mic can get stuck: it shows as open but hears nothing until the app restarts.
+  //   The app now restarts itself when you come back after a minute away, offers
+  //   "Restart mic" after a silent session, and restarts by itself after two in a row.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const SILENCE_MS = 2000;   // stop this long after the last word
   const NOTHING_MS = 8000;   // give up if nothing at all is heard for this long
+  let silentRuns = 0;
   let rec = null, micState = "idle", finalText = "", interimText = "", timers = {}, startedAt = 0, retried = false, finished = false, gotError = false;
   const mic = $("mic");
   const LABELS = {
@@ -1152,12 +1163,14 @@ dialog[open]{animation:up 180ms var(--ease)}
     const text = (finalText + " " + interimText).trim();
     const quickEmpty = !text && !gotError && Date.now() - startedAt < 2500;
     rec = null;
-    if (text) { setMic("idle"); addDictation(text); return; }
+    if (text) { silentRuns = 0; setMic("idle"); addDictation(text); return; }
     if (quickEmpty && !retried) { retried = true; begin(); return; } // Safari hiccup: try once more
     setMic("idle");
     if (!gotError) {
       $("heard").textContent = "";
-      showToast("Didn't catch that", "Tap and wait for “Speak now” before speaking.", null, 3500);
+      silentRuns++;
+      if (silentRuns >= 2) return restartApp(); // two silent sessions in a row: the mic is stuck
+      showToast("Didn't hear anything", "If you were speaking, the mic may be stuck.", restartApp, 8000, "Restart mic");
     }
   }
   function begin() {
@@ -1219,11 +1232,30 @@ dialog[open]{animation:up 180ms var(--ease)}
     if (micState === "starting") return; // ignore double taps while the mic opens
     start();
   });
+  // Restarting the app (same as closing and reopening it) frees a stuck mic.
+  // The worklist is saved on the phone, so nothing is lost.
+  function restartApp() {
+    try { sessionStorage.setItem("cwl.restarted", "1"); } catch (e) {}
+    location.reload();
+  }
   // Leaving the app mid-dictation: keep what was heard so far.
-  document.addEventListener("visibilitychange", () => { if (document.hidden && rec) stopRec(); });
+  // Coming back after a minute or more: restart quietly so the mic starts fresh.
+  let hiddenAt = 0;
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) { hiddenAt = Date.now(); if (rec) stopRec(); return; }
+    const away = hiddenAt && Date.now() - hiddenAt > 60000;
+    const busy = micState !== "idle" || document.querySelector("dialog[open]");
+    if (away && !busy) location.reload();
+  });
 
   /* ---------- Start up ---------- */
   purgeOld();
+  try {
+    if (sessionStorage.getItem("cwl.restarted")) {
+      sessionStorage.removeItem("cwl.restarted");
+      setTimeout(() => showToast("Mic restarted", "Tap to dictate.", null, 3000), 300);
+    }
+  } catch (e) {}
   setMic("idle");
   show("dictate");
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { purgeOld(); render(); } });
