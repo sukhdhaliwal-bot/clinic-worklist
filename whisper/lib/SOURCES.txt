@@ -1,0 +1,7 @@
+Speech engine for the on-phone Whisper test (whisper-test.html). Stored here so nothing loads from the internet.
+
+transformers.js                @huggingface/transformers 4.3.2 (npm), dist/transformers.js (the readable build; the minified one trips GitHub's secret scanner by mistake). Apache-2.0. Includes ONNX Runtime Web's JS.
+ort-wasm-simd-threaded.asyncify.wasm/.mjs   onnxruntime-web 1.31.0-dev.20260914-8d85527a0 (npm, the version transformers 4.3.2 pins), dist/. MIT (Microsoft).
+Checksums: SHA256SUMS.txt
+Models (whisper/models/): fetched from the official Hugging Face repos onnx-community/whisper-tiny.en and onnx-community/whisper-base.en by .github/workflows/fetch-whisper-model.yml. Whisper weights: MIT (OpenAI).
+One edit: line 33456 "Mistral3ForConditionalGeneration" is written as "Mistral3" + "ForConditionalGeneration" (same value) because GitHub mistook the name for a Mistral API key. SHA256SUMS.txt is for the edited file.

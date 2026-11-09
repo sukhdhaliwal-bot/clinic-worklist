@@ -1,0 +1,15 @@
+{
+  "name": "Whisper test",
+  "short_name": "Whisper test",
+  "description": "Test page: on-phone speech to text for Clinic Worklist.",
+  "start_url": "../whisper-test.html",
+  "scope": "../",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F7FB",
+  "theme_color": "#F6F7FB",
+  "icons": [
+    { "src": "../icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "../icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
