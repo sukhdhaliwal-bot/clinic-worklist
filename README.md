@@ -34,6 +34,8 @@ Open `index.html` in any text editor. Near the top is the block that starts `con
 node tests/run-parser-tests.mjs
 ```
 
+If the speech-to-text keeps writing a word wrongly (e.g. "glycolma" for glaucoma), add it to `soundsLike` at the top of the same block: what it writes on the left, what you meant on the right.
+
 Add an example of the new phrase to `tests/parser-cases.js` so it stays tested. The results table is in `tests/parser-results.md`.
 
 ## Where the voice goes

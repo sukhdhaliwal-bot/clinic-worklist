@@ -1,6 +1,6 @@
 # Parser test results
 
-30 of 30 passed. Run on 2026-11-09 with `node tests/run-parser-tests.mjs`.
+32 of 32 passed. Run on 2026-11-09 with `node tests/run-parser-tests.mjs`.
 
 Each row is one thing you might say. "Worklist rows" is what the app files it under. Check that each one is what you'd want.
 
@@ -36,3 +36,5 @@ Each row is one thing you might say. "Worklist rows" is what the app files it un
 | 28 | CL type kept (dailies) plus recall | 567890 order dailies both eyes also recall 1 year | 567890 | To order: Order CLs (dailies, both eyes)<br>Records to update: Recall (1 year) | Pass |
 | 29 | Toric CLs for one eye | 789012 order CLs toric right eye | 789012 | To order: Order CLs (toric, right) | Pass |
 | 30 | Notes to finish | 678901 finish notes | 678901 | Records to update: Complete record | Pass |
+| 31 | Whisper: number with a hyphen, glaucoma misheard | 987-654, refer glycolma, routine | 987654 | Referrals to write: Refer: glaucoma (routine) | Pass |
+| 32 | Whisper: number split by spaces, OCT heard as OCD | 98 76 54 OCD review | 987654 | Records to update: OCT review | Pass |
