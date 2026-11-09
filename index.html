@@ -1122,8 +1122,9 @@ dialog[open]{animation:up 180ms var(--ease)}
   // - Safari sometimes never fires "end" after stop: a backstop finishes it.
   // - After the phone has been locked or the app was in the background, Safari's
   //   mic can get stuck: it shows as open but hears nothing until the app restarts.
-  //   The app now restarts itself when you come back after a minute away, offers
-  //   "Restart mic" after a silent session, and restarts by itself after two in a row.
+  //   The app now restarts itself when you come back after a minute away, and offers
+  //   "Restart mic" after a silent session. (Restarting by itself on silence made
+  //   things worse, so it only restarts when you tap.)
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const SILENCE_MS = 2000;   // stop this long after the last word
   const NOTHING_MS = 8000;   // give up if nothing at all is heard for this long
@@ -1169,7 +1170,6 @@ dialog[open]{animation:up 180ms var(--ease)}
     if (!gotError) {
       $("heard").textContent = "";
       silentRuns++;
-      if (silentRuns >= 2) return restartApp(); // two silent sessions in a row: the mic is stuck
       showToast("Didn't hear anything", "If you were speaking, the mic may be stuck.", restartApp, 8000, "Restart mic");
     }
   }
@@ -1179,7 +1179,7 @@ dialog[open]{animation:up 180ms var(--ease)}
     rec = new SR();
     rec.lang = "en-GB";
     rec.interimResults = true;
-    rec.continuous = true;   // we decide when you've finished, not Safari
+    rec.continuous = false;  // iPhone Safari hears nothing in continuous mode, so Safari ends the session on a pause
     rec.maxAlternatives = 1;
     // Ask for on-device recognition wherever the browser supports it (Safari ignores this today).
     try { if ("processLocally" in rec) rec.processLocally = true; } catch (e) {}
