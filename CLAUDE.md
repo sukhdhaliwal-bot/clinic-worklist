@@ -54,3 +54,7 @@ Example dictations: "123456 refer cataract right eye routine", "234567 repeat vi
 ## Skills
 
 Installed in `.claude/skills/` (sources and commits in `.claude/skills/SOURCES.txt`): mobile-native, apple-design, frontend-design, better-accessibility, better-interface, better-writing, impeccable (use `audit` and `polish`; its edit hooks stay off), playwright-cli. Sukh approved Impeccable's downloaded program on 9 Nov 2026.
+
+## Whisper test (experiment, Sukh approved 9 Nov 2026)
+
+`whisper-test.html` is a separate test page, not part of the app. It runs OpenAI's Whisper model on the phone (transformers.js + ONNX Runtime in `whisper/lib/`, models in `whisper/models/`, fetched from the official Hugging Face repos by `.github/workflows/fetch-whisper-model.yml`). It never contacts anywhere else (`env.allowRemoteModels = false`, CSP `connect-src 'self'`), saves nothing to the worklist and keeps no audio. The "no Whisper" rule above still applies to the real app until Sukh decides otherwise.

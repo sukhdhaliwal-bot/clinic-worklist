@@ -114,15 +114,16 @@ select{font:inherit;font-size:16px;color:inherit;background:var(--surface);borde
     worker.onmessage = (e) => {
       const m = e.data;
       if (m.type === "progress") status(`Loading ${m.file.split("/").pop()}: ${m.pct}%`);
-      if (m.type === "ready") { ready = true; status(`Model ready (loaded in ${(m.ms / 1000).toFixed(1)} s).`); setState("idle", "Tap to dictate", "Say the patient number, then what needs doing"); }
+      if (m.type === "ready") { if (m.id !== $("model").value) return; ready = true; $("model").disabled = false; status(`Model ready (loaded in ${(m.ms / 1000).toFixed(1)} s).`); setState("idle", "Tap to dictate", "Say the patient number, then what needs doing"); }
       if (m.type === "text") showResult(m.text, m.ms);
-      if (m.type === "error") { status("Problem: " + m.message, true); if (ready) setState("idle", "Tap to dictate", "Try again"); }
+      if (m.type === "error") { $("model").disabled = false; status("Problem: " + m.message, true); if (ready) setState("idle", "Tap to dictate", "Try again"); }
     };
     worker.onerror = (e) => status("The speech engine couldn't start: " + (e.message || "unknown error"), true);
     loadModel();
   }
   function loadModel() {
     ready = false;
+    $("model").disabled = true; // one model load at a time
     setState("loading", "Loading model…", "The first time takes a while");
     status("Loading…");
     worker.postMessage({ type: "load", id: $("model").value });
@@ -203,7 +204,9 @@ select{font:inherit;font-size:16px;color:inherit;background:var(--surface);borde
   function showResult(text, ms) {
     setState("idle", "Tap to dictate", "Say the patient number, then what needs doing");
     status(`Done in ${(ms / 1000).toFixed(1)} s.`);
-    const t = tidy(text);
+    // Whisper sometimes "hears" these in silence: treat them as nothing.
+    let t = tidy(text);
+    if (/^[\s.,!?]*(you|thank you|thanks for watching|bye)?[\s.,!?]*$/i.test(t)) t = "";
     let sorted = "";
     if (parser && t) {
       const r = parser.parseDictation(t);

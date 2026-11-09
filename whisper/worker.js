@@ -4,7 +4,7 @@ import { pipeline, env } from "./lib/transformers.js";
 
 env.allowRemoteModels = false;          // never contact Hugging Face or anywhere else
 env.allowLocalModels = true;
-env.localModelPath = new URL("./models/", import.meta.url).href;
+env.localModelPath = "./models/"; // a path, not a full URL: transformers.js only checks local files for paths
 env.useBrowserCache = false;            // the app's service worker keeps the files for offline use
 env.backends.onnx.wasm.wasmPaths = new URL("./lib/", import.meta.url).href;
 env.backends.onnx.wasm.numThreads = 1;  // GitHub Pages can't enable multi-threading
