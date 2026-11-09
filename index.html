@@ -874,7 +874,8 @@ dialog[open]{animation:up 180ms var(--ease)}
     const unsorted = r.unsorted.map((t) => ({ uid: uid(), text: t, done: false }));
     return { actions, unsorted };
   }
-  function addDictation(text) {
+  // fromMic: the mic path doesn't show the toast here; it reloads the page first (see Voice).
+  function addDictation(text, fromMic) {
     const r = parseDictation(text);
     const snapshot = JSON.stringify(state.entries);
     const now = Date.now();
@@ -893,8 +894,10 @@ dialog[open]{animation:up 180ms var(--ease)}
     save(); render();
     const what = actions.length ? actions.map(describeAction).join(" · ") : "Unsorted: " + r.unsorted.join(" · ");
     const head = r.numberOk ? r.number + (entry.texts.length > 1 ? " (added)" : "") : (r.number ? r.number + ": check number" : "No patient number heard");
-    showToast(head, what, () => { state.entries = JSON.parse(snapshot); save(); render(); });
+    if (fromMic) return { head, body: what, undo: snapshot };
+    showToast(head, what, () => undoTo(snapshot));
   }
+  function undoTo(snapshot) { state.entries = JSON.parse(snapshot); save(); render(); }
 
   /* ---------- Worklist ---------- */
   const GROUPS = ["referrals", "fields", "orders", "records", "unsorted"];
@@ -1118,18 +1121,19 @@ dialog[open]{animation:up 180ms var(--ease)}
   // - the mic takes a moment to open, so words said straight after the tap were lost:
   //   the button now says "Speak now" only once Safari reports the mic is live;
   // - Safari sometimes ends a session at once with no error and no words:
-  //   that is retried once automatically, then you're told plainly;
+  //   the page is reset so the next tap gets a fresh mic;
   // - Safari sometimes never fires "end" after stop: a backstop finishes it.
   // - After the phone has been locked or the app was in the background, Safari's
   //   mic can get stuck: it shows as open but hears nothing until the app restarts.
-  //   The app now restarts itself when you come back after a minute away, and offers
-  //   "Restart mic" after a silent session. (Restarting by itself on silence made
-  //   things worse, so it only restarts when you tap.)
+  //   Safari in a home-screen app also tends to give each page only one working
+  //   mic session. So after every session (heard or not) the page reloads itself,
+  //   and the next tap always gets a brand-new mic. The toast and Undo carry over.
+  //   It never starts the mic by itself, so it can't loop. Also restarts when you
+  //   come back after a minute away.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const SILENCE_MS = 2000;   // stop this long after the last word
   const NOTHING_MS = 8000;   // give up if nothing at all is heard for this long
-  let silentRuns = 0;
-  let rec = null, micState = "idle", finalText = "", interimText = "", timers = {}, startedAt = 0, retried = false, finished = false, gotError = false;
+  let rec = null, micState = "idle", finalText = "", interimText = "", timers = {}, startedAt = 0, finished = false, gotError = false;
   const mic = $("mic");
   const LABELS = {
     idle: ["Tap to dictate", "Say the patient number, then what needs doing", "Start dictating"],
@@ -1164,14 +1168,13 @@ dialog[open]{animation:up 180ms var(--ease)}
     const text = (finalText + " " + interimText).trim();
     const quickEmpty = !text && !gotError && Date.now() - startedAt < 2500;
     rec = null;
-    if (text) { silentRuns = 0; setMic("idle"); addDictation(text); return; }
-    if (quickEmpty && !retried) { retried = true; begin(); return; } // Safari hiccup: try once more
+    if (text) { setMic("idle"); return freshPage(addDictation(text, true)); }
     setMic("idle");
-    if (!gotError) {
-      $("heard").textContent = "";
-      silentRuns++;
-      showToast("Didn't hear anything", "If you were speaking, the mic may be stuck.", restartApp, 8000, "Restart mic");
-    }
+    if (gotError) return; // the error message is already showing
+    $("heard").textContent = "";
+    freshPage(quickEmpty
+      ? { head: "Mic didn't open", body: "It's been reset. Tap to dictate again." }
+      : { head: "Didn't hear anything", body: "The mic has been reset. Tap to try again." });
   }
   function begin() {
     finalText = ""; interimText = ""; finished = false; gotError = false;
@@ -1224,7 +1227,6 @@ dialog[open]{animation:up 180ms var(--ease)}
     if (!SR) return noSpeech("Speech recognition isn't available in this browser. Type instead, or open the app in Safari.");
     $("mic-notice").hidden = true;
     $("heard").textContent = "";
-    retried = false;
     begin();
   }
   mic.addEventListener("click", () => {
@@ -1232,10 +1234,12 @@ dialog[open]{animation:up 180ms var(--ease)}
     if (micState === "starting") return; // ignore double taps while the mic opens
     start();
   });
-  // Restarting the app (same as closing and reopening it) frees a stuck mic.
-  // The worklist is saved on the phone, so nothing is lost.
-  function restartApp() {
-    try { sessionStorage.setItem("cwl.restarted", "1"); } catch (e) {}
+  // Reloading the page (same as closing and reopening the app) gives the next tap
+  // a fresh mic. The worklist is saved on the phone, so nothing is lost. The toast
+  // to show afterwards (and the Undo copy) is kept in sessionStorage, which stays
+  // on this phone and is read and wiped as soon as the page comes back.
+  function freshPage(toast) {
+    try { sessionStorage.setItem("cwl.toast", JSON.stringify({ ...toast, at: Date.now() })); } catch (e) {}
     location.reload();
   }
   // Leaving the app mid-dictation: keep what was heard so far.
@@ -1251,9 +1255,11 @@ dialog[open]{animation:up 180ms var(--ease)}
   /* ---------- Start up ---------- */
   purgeOld();
   try {
-    if (sessionStorage.getItem("cwl.restarted")) {
-      sessionStorage.removeItem("cwl.restarted");
-      setTimeout(() => showToast("Mic restarted", "Tap to dictate.", null, 3000), 300);
+    const t = JSON.parse(sessionStorage.getItem("cwl.toast") || "null");
+    sessionStorage.removeItem("cwl.toast");
+    if (t && Date.now() - t.at < 15000) {
+      const undo = t.undo ? () => undoTo(t.undo) : null;
+      showToast(t.head, t.body, undo, undo ? 6000 : 3500);
     }
   } catch (e) {}
   setMic("idle");
