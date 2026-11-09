@@ -795,7 +795,7 @@ dialog[open]{animation:up 180ms var(--ease)}
 <dialog id="dlg-type" aria-labelledby="type-title">
   <form method="dialog" class="sheet" id="form-type">
     <h2 id="type-title">Type instead</h2>
-    <p>Type it as you'd say it, e.g. "123456 refer cataract right eye routine".</p>
+    <p id="type-hint">Type it as you'd say it, e.g. "123456 refer cataract right eye routine".</p>
     <label class="sr-only" for="type-text">Patient number and actions</label>
     <textarea id="type-text" autocomplete="off" autocapitalize="none" enterkeyhint="done" spellcheck="false"></textarea>
     <div class="row">
@@ -823,6 +823,13 @@ dialog[open]{animation:up 180ms var(--ease)}
   <form method="dialog" class="sheet" id="form-settings">
     <h2 id="settings-title">Settings</h2>
     <div class="setting">
+      <label for="mic-mode">Big button uses</label>
+      <select id="mic-mode">
+        <option value="keyboard">Keyboard mic (reliable)</option>
+        <option value="safari">Safari speech (can stick)</option>
+      </select>
+    </div>
+    <div class="setting">
       <label for="days">Delete entries after (days)</label>
       <input type="number" id="days" min="1" max="30" step="1" inputmode="numeric">
     </div>
@@ -834,7 +841,7 @@ dialog[open]{animation:up 180ms var(--ease)}
       <p><strong>Stays on this phone.</strong> The worklist is saved only in this phone's browser storage. The app sends nothing anywhere and keeps no audio, only the text.</p>
       <p><strong>Speech is turned into text by Apple</strong> (Safari's built-in dictation). Depending on your iPhone and iOS version, Apple may do this on the phone or on its servers, the same as keyboard dictation.</p>
     </div>
-    <p class="version">Version 6 (fresh mic each time)</p>
+    <p class="version">Version 7 (keyboard mic)</p>
     <div class="row"><button class="btn primary" value="done" autofocus>Done</button></div>
   </form>
 </dialog>
@@ -1054,14 +1061,31 @@ dialog[open]{animation:up 180ms var(--ease)}
   });
 
   /* ---------- Type instead ---------- */
-  function openType(message) {
+  // speak=true: opened by the big button for the iPhone keyboard's own dictation.
+  // It saves by itself 2.5 seconds after the words stop arriving.
+  const PAUSE_SAVE_MS = 2500;
+  let typeSpeak = false, typeTimer = 0;
+  function openType(message, speak) {
+    typeSpeak = !!speak;
+    clearTimeout(typeTimer);
     $("type-text").value = "";
+    $("type-title").textContent = speak ? "Speak now" : "Type instead";
+    $("type-hint").textContent = speak
+      ? "Tap the mic on the keyboard (bottom right) and say the patient number, then what needs doing. It saves when you stop. Never say names or dates of birth."
+      : "Type it as you'd say it, e.g. \u201c123456 refer cataract right eye routine\u201d.";
     if (message) { $("mic-notice").textContent = message; $("mic-notice").hidden = false; }
     $("dlg-type").showModal();
+    $("type-text").focus(); // straight away, inside the tap, so iPhone shows the keyboard
     setTimeout(() => $("type-text").focus(), 50);
   }
+  $("type-text").addEventListener("input", () => {
+    if (!typeSpeak) return;
+    clearTimeout(typeTimer);
+    if ($("type-text").value.trim()) typeTimer = setTimeout(() => $("type-save").click(), PAUSE_SAVE_MS);
+  });
   $("type-instead").addEventListener("click", () => openType());
   $("dlg-type").addEventListener("close", () => {
+    clearTimeout(typeTimer); typeSpeak = false;
     if ($("dlg-type").returnValue === "save") {
       const t = $("type-text").value.trim();
       if (t) addDictation(t);
@@ -1072,7 +1096,8 @@ dialog[open]{animation:up 180ms var(--ease)}
   });
 
   /* ---------- Settings ---------- */
-  $("open-settings").addEventListener("click", () => { $("days").value = state.settings.days; $("dlg-settings").showModal(); });
+  $("open-settings").addEventListener("click", () => { $("days").value = state.settings.days; $("mic-mode").value = micMode(); $("dlg-settings").showModal(); });
+  $("mic-mode").addEventListener("change", () => { state.settings.micMode = $("mic-mode").value; save(); });
   $("days").addEventListener("change", () => {
     const d = Math.max(1, Math.min(30, Math.round(+$("days").value || 7)));
     $("days").value = d; state.settings.days = d; save(); purgeOld(); render();
@@ -1133,6 +1158,7 @@ dialog[open]{animation:up 180ms var(--ease)}
   //   It never starts the mic by itself, so it can't loop. Also restarts when you
   //   come back after a minute away.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function micMode() { return state.settings.micMode || "keyboard"; }
   const SILENCE_MS = 2000;   // stop this long after the last word
   const NOTHING_MS = 8000;   // give up if nothing at all is heard for this long
   let rec = null, micState = "idle", finalText = "", interimText = "", timers = {}, startedAt = 0, finished = false, gotError = false;
@@ -1232,6 +1258,7 @@ dialog[open]{animation:up 180ms var(--ease)}
     begin();
   }
   mic.addEventListener("click", () => {
+    if (micMode() === "keyboard" && micState === "idle") return openType(null, true);
     if (micState === "listening") return stopRec();
     if (micState === "starting") return; // ignore double taps while the mic opens
     start();
