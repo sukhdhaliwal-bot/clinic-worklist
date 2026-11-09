@@ -1,0 +1,1150 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Worklist</title>
+<meta name="description" content="Dictate what each patient needs; get a sorted to-do list. Stays on this phone.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#F6F7FB">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0A0D1E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Worklist">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="preload" href="fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<script id="parser">
+/* ==========================================================================
+   KEYWORDS: edit this block to teach the app your own phrases.
+   - Write phrases in lower case, words separated by single spaces.
+   - Leave out "the" (it is ignored when matching).
+   - Numbers can be digits ("4") or words; spoken numbers become digits first.
+   - After adding a phrase, add an example to tests/parser-cases.js and run
+     node tests/run-parser-tests.mjs
+   ========================================================================== */
+const KEYWORDS = {
+  numberLength: 6, // patient numbers are always this many digits
+
+  groups: {
+    referrals: "Referrals to write",
+    fields: "Fields to book",
+    records: "Records to update",
+    unsorted: "Unsorted",
+  },
+
+  // A referral needs one of these words AND (optionally) a condition below.
+  // "refer" on its own, with no condition, becomes "Refer: other".
+  referralWords: [
+    "refer", "referral", "referred", "referring", "refer on", "hes",
+    "send to hospital", "refer to hospital", "hospital", "send in", "eye casualty", "casualty", "a and e",
+    "ophthalmology", "ophthalmologist", "ophth",
+  ],
+
+  referralConditions: [
+    { id: "cataract", label: "Refer: cataract",
+      phrases: ["cataract", "cataracts", "cat", "cats", "lens opacity", "lens opacities"] },
+    { id: "glaucoma", label: "Refer: glaucoma",
+      phrases: ["glaucoma", "oht", "ocular hypertension", "raised iop", "raised iops",
+                "high iop", "high iops", "raised pressure", "raised pressures",
+                "high pressure", "high pressures", "angle closure", "narrow angles", "narrow angle"] },
+    { id: "other", label: "Refer: other", phrases: ["retinal detachment", "detachment"] },
+    { id: "amd", label: "Refer: AMD",
+      phrases: ["amd", "wet amd", "dry amd", "armd", "macular degeneration", "wet macular",
+                "cnv", "md"] },
+    { id: "diabetic", label: "Refer: diabetic",
+      phrases: ["diabetic", "diabetes", "diabetic retinopathy", "retinopathy",
+                "maculopathy", "dr", "r2", "r3", "m1"] },
+  ],
+  otherReferralLabel: "Refer: other",
+
+  // These mean a referral even if you don't say "refer".
+  impliesReferral: ["wet amd", "wet macular", "cnv", "angle closure", "retinal detachment"],
+
+  // A part with no action that mentions one of these (e.g. "IOPs 28 and 30")
+  // is kept as a note on the action before it, instead of going to Unsorted.
+  // A part after "Refer: other" or "Fields: record result" is always kept as its note.
+  noteWords: ["iop", "iops", "pressure", "pressures", "va", "vision", "acuity",
+              "cdr", "cup disc", "disc", "discs", "reading", "readings"],
+
+  // Letter to GP (checked before referrals, so "refer to GP" is a letter).
+  gpLetter: {
+    label: "Letter to GP",
+    phrases: ["letter to gp", "write to gp", "inform gp", "tell gp", "gp letter",
+              "letter gp", "refer to gp", "send to gp", "letter for gp", "gp to be informed",
+              "copy to gp", "advise gp"],
+  },
+
+  // Visual fields: a field word plus (optionally) a result or "repeat" word,
+  // anywhere in the same part of the sentence.
+  fieldWords: ["visual fields", "visual field", "fields", "field", "vf", "vfs",
+               "humphrey", "perimetry", "field test", "field tests"],
+  fieldRepeatWords: ["repeat", "repeated", "redo", "retest", "recheck", "again",
+                     "rebook", "book", "repeating"],
+  fieldNormalWords: ["normal", "full", "fine", "clear", "ok", "okay", "nad",
+                     "unremarkable", "good", "stable"],
+  fieldAbnormalWords: ["abnormal", "borderline", "defect", "defects", "loss",
+                       "suspicious", "reduced", "scotoma", "constricted", "unreliable"],
+  fieldLabels: {
+    repeat: "Fields: repeat",
+    normal: "Fields: normal",
+    abnormal: "Fields: abnormal",
+    plain: "Fields: record result",
+  },
+
+  // OCT: any mention is an "OCT review" unless a normal word is in the same part.
+  octWords: ["oct", "octs", "oct scan", "scan"],
+  octLabels: { review: "OCT review", normal: "OCT: normal" },
+
+  recall: {
+    label: "Recall",
+    phrases: ["recall", "see again", "see in", "review in", "back in", "see back",
+              "rebook in", "come back in", "follow up in", "follow up"],
+  },
+
+  noAction: {
+    label: "No action",
+    phrases: ["no action", "no further action", "nfa", "nothing needed", "nothing to do",
+              "no action needed", "no action required", "nothing further"],
+  },
+
+  eyes: {
+    R: ["right eye", "right", "r", "re", "od"],
+    L: ["left eye", "left", "l", "le", "os"],
+    Both: ["both eyes", "both", "bilateral", "bilaterally", "ou", "right and left",
+           "left and right", "r and l", "each eye"],
+  },
+
+  // Highest first: if two are said, the most urgent wins.
+  urgency: [
+    { id: "Emergency", phrases: ["emergency", "same day", "today", "immediately", "immediate", "asap"] },
+    { id: "Urgent", phrases: ["urgent", "urgently"] },
+    { id: "Soon", phrases: ["soon", "soonish"] },
+    { id: "Routine", phrases: ["routine", "routinely"] },
+  ],
+
+  // Words that split one dictation into separate parts (as well as , . ;).
+  clauseBreaks: ["also", "plus", "then", "next", "and also", "and then"],
+
+  // Little words that never count as "unsorted" when left at the edge of a note.
+  fillerWords: ["and", "a", "an", "to", "in", "for", "of", "with", "at", "on", "is",
+                "are", "was", "please", "needs", "need", "needed", "um",
+                "er", "so"],
+};
+
+/* ==========================================================================
+   Parser logic. No DOM code here: tests/run-parser-tests.mjs runs it in Node.
+   ========================================================================== */
+const CWLParser = (() => {
+  const K = KEYWORDS;
+  const UNITS = { zero: 0, nought: 0, one: 1, two: 2, three: 3, four: 4, five: 5,
+                  six: 6, seven: 7, eight: 8, nine: 9 };
+  const TEENS = { ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+                  fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19 };
+  const TENS = { twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
+                 seventy: 70, eighty: 80, ninety: 90 };
+  const SEP = "|";
+  const isDigits = (s) => /^\d+$/.test(s);
+  const split = (p) => p.split(" ");
+
+  // 1. Clean up spoken/dictated quirks before splitting into words.
+  function preclean(text) {
+    return String(text || "")
+      .replace(/\bv\.?\s?f\.?(s)?(?=\W|$)/gi, " VF$1 ")
+      .replace(/\bo\.?\s?c\.?\s?t\.?(?=\W|$)/gi, " OCT ")
+      .replace(/\bi\.?\s?o\.?\s?p\.?(s)?(?=\W|$)/gi, " IOP$1 ")
+      .replace(/\bg\.?\s?p\.?(?=\W|$)/gi, " GP ")
+      .replace(/\ba\s?&\s?e\b/gi, " A and E ")
+      .replace(/&/g, " and ")
+      .replace(/(\d+)\s*\/\s*52\b/g, "$1 weeks")
+      .replace(/\bfortnight\b/gi, "2 weeks")
+      .replace(/(\d)(st|nd|rd|th)\b/gi, "$1");
+  }
+
+  // 2. Split into word tokens, keeping the original spelling for notes.
+  function tokenize(text) {
+    const out = [];
+    const re = /([,.;:!?\n]+)|([A-Za-z0-9']+)/g;
+    let m;
+    while ((m = re.exec(text))) {
+      if (m[1]) { out.push({ n: SEP, o: m[1].trim() }); continue; }
+      out.push({ n: m[2].toLowerCase().replace(/'/g, ""), o: m[2] });
+    }
+    return out;
+  }
+
+  // 3. Spoken numbers to digits; merge "re test" style words.
+  function normalizeNumbers(toks) {
+    const out = [];
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i], w = t.n, nx = toks[i + 1];
+      if ((w === "double" || w === "triple") && nx && (UNITS[nx.n] !== undefined || isDigits(nx.n) && nx.n.length === 1 || nx.n === "oh" || nx.n === "o")) {
+        const d = UNITS[nx.n] !== undefined ? String(UNITS[nx.n]) : (isDigits(nx.n) ? nx.n : "0");
+        out.push({ n: d.repeat(w === "double" ? 2 : 3), o: t.o + " " + nx.o, num: true });
+        i++; continue;
+      }
+      if (TENS[w] !== undefined) {
+        if (nx && UNITS[nx.n] !== undefined && UNITS[nx.n] > 0) {
+          out.push({ n: String(TENS[w] + UNITS[nx.n]), o: t.o + " " + nx.o, num: true }); i++;
+        } else out.push({ n: String(TENS[w]), o: t.o, num: true });
+        continue;
+      }
+      if (TEENS[w] !== undefined) { out.push({ n: String(TEENS[w]), o: t.o, num: true }); continue; }
+      if (UNITS[w] !== undefined) { out.push({ n: String(UNITS[w]), o: t.o, num: true }); continue; }
+      if (w === "re" && nx && ["test", "do", "check", "book"].includes(nx.n)) {
+        out.push({ n: "re" + nx.n, o: t.o + " " + nx.o }); i++; continue;
+      }
+      if (w === "the") continue;
+      out.push(t);
+    }
+    // "oh" / "o" means zero only next to other digits.
+    for (let i = 0; i < out.length; i++) {
+      if (out[i].n === "oh" || out[i].n === "o") {
+        const a = out[i - 1], b = out[i + 1];
+        if ((a && isDigits(a.n)) || (b && isDigits(b.n))) out[i] = { n: "0", o: out[i].o, num: true };
+      }
+    }
+    return out;
+  }
+
+  // 4. Find the patient number: the first run of digits that makes exactly 6.
+  function findNumber(toks) {
+    const want = K.numberLength;
+    const runs = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (!isDigits(toks[i].n)) continue;
+      let s = "", idx = [], j = i;
+      while (j < toks.length && s.length < want) {
+        if (isDigits(toks[j].n)) { s += toks[j].n; idx.push(j); j++; }
+        else if (toks[j].n === SEP && toks[j + 1] && isDigits(toks[j + 1].n) && s.length < want) { idx.push(j); j++; }
+        else break;
+      }
+      runs.push({ s, idx });
+      if (s.length === want) return { number: s, ok: true, idx };
+      i = j - 1;
+    }
+    const firstLong = runs.find((r) => r.s.length >= 3);
+    if (firstLong) return { number: firstLong.s, ok: false, idx: firstLong.idx };
+    return { number: "", ok: false, idx: [] };
+  }
+
+  // Phrase matching on token arrays.
+  function findPhrase(toks, phrase, used, from = 0) {
+    const p = split(phrase);
+    outer: for (let i = from; i <= toks.length - p.length; i++) {
+      for (let k = 0; k < p.length; k++) {
+        if (toks[i + k].n !== p[k] || (used && used[i + k])) continue outer;
+      }
+      return { start: i, end: i + p.length - 1 };
+    }
+    return null;
+  }
+  // Longest phrases first so "wet amd" beats "amd".
+  const byLength = (list) => [...list].sort((a, b) => split(b).length - split(a).length);
+  function findAny(toks, phrases, used) {
+    for (const ph of byLength(phrases)) {
+      const hit = findPhrase(toks, ph, used);
+      if (hit) return { ...hit, phrase: ph };
+    }
+    return null;
+  }
+  function findAll(toks, phrases, used) {
+    const hits = [];
+    const taken = used ? used.slice() : new Array(toks.length).fill(false);
+    for (const ph of byLength(phrases)) {
+      let from = 0, hit;
+      while ((hit = findPhrase(toks, ph, taken, from))) {
+        hits.push({ ...hit, phrase: ph });
+        for (let i = hit.start; i <= hit.end; i++) taken[i] = true;
+        from = hit.end + 1;
+      }
+    }
+    return hits.sort((a, b) => a.start - b.start);
+  }
+  const mark = (used, hit) => { for (let i = hit.start; i <= hit.end; i++) used[i] = true; };
+  const text = (toks, a, b) => toks.slice(a, b + 1).map((t) => t.o).join(" ");
+
+  // 5. Split into parts at , . ; and the clause-break words.
+  function clauses(toks) {
+    const parts = [[]];
+    for (let i = 0; i < toks.length; i++) {
+      const t = toks[i];
+      if (t.n === SEP) { parts.push([]); continue; }
+      const two = toks[i + 1] ? t.n + " " + toks[i + 1].n : "";
+      if (K.clauseBreaks.includes(two)) { parts.push([]); i++; continue; }
+      if (K.clauseBreaks.includes(t.n)) { parts.push([]); continue; }
+      parts[parts.length - 1].push(t);
+    }
+    return parts.filter((p) => p.length);
+  }
+
+  function timingIn(toks, used) {
+    for (let i = 0; i < toks.length - 1; i++) {
+      if (used[i] || used[i + 1]) continue;
+      const a = toks[i].n, b = toks[i + 1].n;
+      const unit = /^(day|days|week|weeks|wk|wks|month|months|year|years|yr|yrs)$/.test(b) ? b : null;
+      if (!unit) continue;
+      let n = isDigits(a) ? +a : (a === "a" || a === "an") ? 1 : null;
+      if (n === null) continue;
+      const base = { d: "day", w: "week", m: "month", y: "year" }[b[0]];
+      return { start: i, end: i + 1, value: n + " " + base + (n === 1 ? "" : "s") };
+    }
+    return null;
+  }
+
+  function parseClause(toks) {
+    const used = new Array(toks.length).fill(false);
+    const actions = [];
+    const add = (id, label, group, hit, extra = {}) =>
+      actions.push({ id, label, group: group, at: hit ? hit.start : 0, ...extra });
+
+    // Letter to GP first (so "refer to GP" is not a hospital referral).
+    const gp = findAny(toks, K.gpLetter.phrases, used);
+    if (gp) { mark(used, gp); add("gp-letter", K.gpLetter.label, "referrals", gp); }
+
+    // Referrals.
+    let refHits = findAll(toks, K.referralWords, used);
+    if (!refHits.length) refHits = findAll(toks, K.impliesReferral, used).map((h) => ({ start: h.start, end: h.start - 1 }));
+    if (refHits.length) {
+      refHits.forEach((h) => mark(used, h));
+      let found = 0;
+      for (const c of K.referralConditions) {
+        const hs = findAll(toks, c.phrases, used);
+        if (hs.length) {
+          hs.forEach((h) => mark(used, h)); found++;
+          const detail = c.id === "other" || /^(wet|dry) /.test(hs[0].phrase) ? text(toks, hs[0].start, hs[0].end) : undefined;
+          add("ref-" + c.id, c.label, "referrals", { start: Math.min(hs[0].start, refHits[0].start) }, detail ? { detail } : {});
+        }
+      }
+      if (!found) add("ref-other", K.otherReferralLabel, "referrals", refHits[0]);
+    }
+
+    // Visual fields.
+    const fw = findAny(toks, K.fieldWords, used);
+    if (fw) {
+      mark(used, fw);
+      const rep = findAny(toks, K.fieldRepeatWords, used);
+      const ab = findAny(toks, K.fieldAbnormalWords, used);
+      const no = findAny(toks, K.fieldNormalWords, used);
+      const at = { start: Math.min(fw.start, ...[rep, ab, no].filter(Boolean).map((h) => h.start)) };
+      if (rep) {
+        mark(used, rep);
+        add("vf-repeat", K.fieldLabels.repeat, "fields", at, { timed: true });
+      } else if (ab) {
+        mark(used, ab);
+        add("vf-abnormal", K.fieldLabels.abnormal, "records", at, { detail: ab.phrase });
+      } else if (no) {
+        mark(used, no);
+        add("vf-normal", K.fieldLabels.normal, "records", at);
+      } else {
+        add("vf-plain", K.fieldLabels.plain, "records", at);
+      }
+    }
+
+    // OCT.
+    const oct = findAny(toks, K.octWords, used);
+    if (oct) {
+      mark(used, oct);
+      const no = findAny(toks, K.fieldNormalWords, used);
+      const ab = findAny(toks, K.fieldAbnormalWords, used);
+      if (no && !ab) { mark(used, no); add("oct-normal", K.octLabels.normal, "records", oct); }
+      else {
+        if (ab) mark(used, ab);
+        const rv = findPhrase(toks, "review", used) || findPhrase(toks, "repeat", used);
+        if (rv) mark(used, rv);
+        add("oct-review", K.octLabels.review, "records", oct, ab ? { detail: ab.phrase, timed: true } : { timed: true });
+      }
+    }
+
+    // Recall.
+    const rc = findAny(toks, K.recall.phrases, used);
+    if (rc) { mark(used, rc); add("recall", K.recall.label, "records", rc, { timed: true }); }
+
+    // No action.
+    const na = findAny(toks, K.noAction.phrases, used);
+    if (na) { mark(used, na); add("no-action", K.noAction.label, "records", na); }
+
+    // Eye, urgency and timing apply to the actions in this part.
+    let eye = null;
+    const eyeHits = {};
+    for (const side of ["Both", "R", "L"]) {
+      const hits = findAll(toks, K.eyes[side], used);
+      if (hits.length) { eyeHits[side] = true; hits.forEach((h) => mark(used, h)); }
+    }
+    if (eyeHits.Both || (eyeHits.R && eyeHits.L)) eye = "Both";
+    else if (eyeHits.R) eye = "R";
+    else if (eyeHits.L) eye = "L";
+
+    let urgency = null;
+    for (const u of K.urgency) {
+      const hits = findAll(toks, u.phrases, used);
+      if (hits.length) { hits.forEach((h) => mark(used, h)); if (!urgency) urgency = u.id; }
+    }
+
+    let timing = null;
+    if (!actions.length || actions.some((a) => a.timed)) {
+      const t = timingIn(toks, used);
+      if (t) { mark(used, t); timing = t.value; }
+    }
+
+    // Leftover words: kept as a note (never dropped).
+    const leftovers = [];
+    let i = 0;
+    while (i < toks.length) {
+      if (used[i]) { i++; continue; }
+      let j = i;
+      while (j + 1 < toks.length && !used[j + 1]) j++;
+      let a = i, b = j;
+      while (a <= b && K.fillerWords.includes(toks[a].n)) a++;
+      while (b >= a && K.fillerWords.includes(toks[b].n)) b--;
+      if (a <= b) leftovers.push({ start: a, text: text(toks, a, b) });
+      i = j + 1;
+    }
+
+    actions.sort((x, y) => x.at - y.at);
+    for (const a of actions) {
+      if (eye && a.id !== "no-action" && a.id !== "recall" && a.id !== "gp-letter") a.eye = eye;
+      if (urgency && a.group === "referrals") a.urgency = urgency;
+      if (timing && a.timed) a.timing = timing;
+    }
+    // Attach each leftover to the nearest action before it (or the first one).
+    for (const lo of leftovers) {
+      if (!actions.length) break;
+      let target = actions[0];
+      for (const a of actions) if (a.at <= lo.start) target = a;
+      target.notes = (target.notes ? target.notes + "; " : "") + lo.text;
+    }
+    const said = text(toks, 0, toks.length - 1);
+    const unsorted = actions.length || !leftovers.length ? [] : [said];
+    const isNote = !actions.length && K.noteWords.some((w) => findPhrase(toks, w, null));
+    // A part that is only "right eye", "routine" or "4 weeks" belongs to the part before it.
+    const modifiersOnly = !actions.length && !leftovers.length;
+    return { actions, unsorted, modifiersOnly, isNote, eye, urgency, timing, said };
+  }
+
+  function parseDictation(raw) {
+    const original = String(raw || "").trim();
+    const toks = normalizeNumbers(tokenize(preclean(original)));
+    const num = findNumber(toks);
+    const rest = toks.map((t, i) => (num.idx.includes(i) ? { n: SEP, o: "" } : t));
+
+    const actions = [];
+    const unsorted = [];
+    let last = [];
+    for (const c of clauses(rest)) {
+      const r = parseClause(c);
+      if (r.modifiersOnly) {
+        if (!last.length) {
+          if (unsorted.length) unsorted[unsorted.length - 1] += ", " + r.said;
+          else unsorted.push(r.said);
+          continue;
+        }
+        for (const a of last) {
+          if (r.eye && !a.eye && a.id !== "no-action" && a.id !== "recall" && a.id !== "gp-letter") a.eye = r.eye;
+          if (r.urgency && !a.urgency && a.group === "referrals") a.urgency = r.urgency;
+          if (r.timing && !a.timing && a.timed) a.timing = r.timing;
+        }
+        if (r.urgency && !last.some((a) => a.group === "referrals")) unsorted.push(r.said);
+        continue;
+      }
+      if (!r.actions.length && last.some((a) => a.id.startsWith("vf-")) && !actions.some((a) => a.id === "vf-repeat")) {
+        const c2 = c.filter(() => true);
+        const rep = findAny(c2, K.fieldRepeatWords, null);
+        if (rep) {
+          // "fields borderline, repeat in 4 weeks": the repeat belongs to the fields.
+          const t = timingIn(c2, new Array(c2.length).fill(false));
+          const a = { id: "vf-repeat", label: K.fieldLabels.repeat, group: "fields", timed: true };
+          if (t) a.timing = t.value;
+          const prev = last.find((x) => x.id.startsWith("vf-"));
+          if (prev && prev.eye) a.eye = prev.eye;
+          const extra = c2.filter((tk, i) => !(i >= rep.start && i <= rep.end) && !(t && i >= t.start && i <= t.end) && !K.fillerWords.includes(tk.n));
+          if (extra.length) a.notes = extra.map((x) => x.o).join(" ");
+          actions.push(a); last = [a];
+          continue;
+        }
+      }
+      if (!r.actions.length) {
+        const wantsNote = last.length && (r.isNote || last.some((a) => a.id === "ref-other" || a.id === "vf-plain"));
+        if (wantsNote) {
+          const a = last.find((x) => x.id === "ref-other" || x.id === "vf-plain") || last[last.length - 1];
+          a.notes = (a.notes ? a.notes + "; " : "") + r.said;
+        } else unsorted.push(...r.unsorted);
+        continue;
+      }
+      last = [];
+      for (const a of r.actions) {
+        const dup = actions.find((x) => x.id === a.id);
+        last.push(dup || a);
+        if (dup) {
+          if (a.notes) dup.notes = (dup.notes ? dup.notes + "; " : "") + a.notes;
+          for (const k of ["eye", "urgency", "timing", "detail"]) if (!dup[k] && a[k]) dup[k] = a[k];
+        } else actions.push(a);
+      }
+      unsorted.push(...r.unsorted);
+    }
+    const clean = actions.map(({ id, label, group, eye, urgency, timing, detail, notes }) => {
+      const o = { id, label, group };
+      if (detail) o.detail = detail;
+      if (eye) o.eye = eye;
+      if (urgency) o.urgency = urgency;
+      if (timing) o.timing = timing;
+      if (notes) o.notes = notes;
+      return o;
+    });
+    if (!clean.length && !unsorted.length) unsorted.push(original ? "(nothing after the number)" : "(empty)");
+    return { number: num.number, numberOk: num.ok, actions: clean, unsorted, text: original };
+  }
+
+  const EYE_WORDS = { R: "right", L: "left", Both: "both eyes" };
+  function describeAction(a) {
+    const bits = [];
+    if (a.detail) bits.push(a.detail);
+    if (a.eye) bits.push(EYE_WORDS[a.eye]);
+    if (a.timing) bits.push(a.timing);
+    if (a.urgency) bits.push(a.urgency.toLowerCase());
+    if (a.notes) bits.push('"' + a.notes + '"');
+    return a.label + (bits.length ? " (" + bits.join(", ") + ")" : "");
+  }
+
+  // One line per worklist row, as it will appear in the app. Used by the tests.
+  function summarize(r) {
+    const lines = [];
+    const num = r.number ? r.number : "no number";
+    if (!r.numberOk) lines.push(`Unsorted: ${num}, check number`);
+    for (const a of r.actions) {
+      const g = r.numberOk ? K.groups[a.group] : K.groups.unsorted;
+      lines.push(`${g}: ${describeAction(a)}`);
+    }
+    for (const u of r.unsorted) lines.push(`Unsorted: "${u}"`);
+    return { number: num, lines };
+  }
+
+  return { parseDictation, summarize, describeAction };
+})();
+globalThis.KEYWORDS = KEYWORDS;
+globalThis.CWLParser = CWLParser;
+</script>
+<style>
+/* Fonts are stored with the app (SIL OFL, see fonts/LICENSE.txt). Nothing loads from Google. */
+@font-face{font-family:"Geist";src:url(fonts/geist-latin-wght-normal.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Geist Mono";src:url(fonts/geist-mono-latin-wght-normal.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Outfit";src:url(fonts/outfit-latin-500-normal.woff2) format("woff2");font-weight:500;font-display:swap}
+
+/* Design tokens copied from Lume (src/styles/tokens.css) so the two apps match. */
+:root{
+  --bg:#F6F7FB; --surface:#FFFFFF; --surface-2:#F0F2F8; --ink:#0E1330; --muted:#5A6378; --line:#DDE2EE;
+  --accent:#5557F0; --accent-ink:#FFFFFF; --accent-soft:#F1F1FE;
+  --eye-r:#0072B2; --eye-l:#A65200;
+  --eb-r-bg:#DDEEF9; --eb-r-fg:#005A8C; --eb-r-bd:#9CCBEA; --eb-l-bg:#FCEAD9; --eb-l-fg:#8A4500; --eb-l-bd:#F0BE8E;
+  --ok:#1C7443; --ok-soft:#DFF1E6; --warn:#955600; --warn-soft:#FAEDD5; --bad:#AE2417; --bad-soft:#FAE3DF;
+  --font-ui:"Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-num:"Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-head:"Outfit", "Geist", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --r:14px; --r-s:8px; --raise:#FFFFFF;
+  --shadow-r:0 3px 16px rgba(73,46,107,.14); --shadow-rl:0 4px 20px rgba(71,92,133,.20), 0 24px 56px rgba(144,138,208,.12);
+  --t-label:11px; --t-small:13px; --t-body:15px; --t-lead:17px; --t-sub:20px; --t-title:24px; --t-hero:clamp(28px,5vw,32px);
+  --s-1:4px; --s-2:8px; --s-3:12px; --s-4:16px; --s-5:24px; --s-6:32px;
+  --tab-h:64px;
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0A0D1E; --surface:#12162E; --surface-2:#191E3A; --ink:#E9ECF7; --muted:#A1A9C0; --line:#283057;
+    --accent:#AFC0FF; --accent-ink:#0E1330; --accent-soft:#1E2550;
+    --eye-r:#56B4E9; --eye-l:#E69F00;
+    --eb-r-bg:#56B4E9; --eb-r-fg:#0A0D1E; --eb-r-bd:transparent; --eb-l-bg:#E69F00; --eb-l-fg:#0A0D1E; --eb-l-bd:transparent;
+    --ok:#6DD39B; --ok-soft:#11301F; --warn:#F1B45C; --warn-soft:#382810; --bad:#FF8B7B; --bad-soft:#3A1713;
+    --raise:#262C52; --shadow-r:0 4px 18px rgba(3,2,22,.62); --shadow-rl:0 8px 30px rgba(3,2,22,.66);
+    color-scheme:dark;
+  }
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent;overscroll-behavior:none;background:var(--bg)}
+body{margin:0;min-height:100dvh;background:var(--bg);color:var(--ink);font:400 var(--t-body)/1.45 var(--font-ui);overscroll-behavior:none;overflow-x:hidden}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer;touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.num{font-family:var(--font-num);font-variant-numeric:tabular-nums;letter-spacing:.02em}
+
+/* App shell */
+.app{display:flex;flex-direction:column;height:100dvh;padding-top:env(safe-area-inset-top)}
+.top{display:flex;align-items:center;gap:var(--s-2);padding:var(--s-3) var(--s-4) var(--s-2);min-height:56px}
+.top h1{margin:0;font:500 var(--t-sub)/1.2 var(--font-head);letter-spacing:-.01em;flex:1}
+.top .sub{display:block;font:400 var(--t-small)/1.3 var(--font-ui);color:var(--muted);letter-spacing:0}
+.icon-btn{display:inline-grid;place-items:center;min-width:44px;height:44px;border:0;border-radius:var(--r-s);background:transparent;color:var(--muted)}
+.icon-btn:active{background:var(--surface-2)}
+.icon-btn svg{width:22px;height:22px}
+main{flex:1;min-height:0;position:relative}
+.view{position:absolute;inset:0;display:flex;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;padding:0 var(--s-4) var(--s-6)}
+.view[hidden]{display:none}
+
+/* Dictate */
+#view-dictate{padding-bottom:var(--s-3);overflow:hidden}
+.mic{flex:1;min-height:240px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s-4);
+  border:0;border-radius:28px;background:var(--accent);color:var(--accent-ink);box-shadow:var(--shadow-r);
+  transition:transform 120ms var(--ease),background-color 160ms var(--ease)}
+.mic:active{transform:scale(.985)}
+.mic svg{width:72px;height:72px}
+.mic .mic-label{font:500 var(--t-title)/1.2 var(--font-head)}
+.mic .mic-hint{font-size:var(--t-small);opacity:.8;max-width:26ch;text-align:center}
+.mic[data-state="listening"]{background:var(--bad);color:#fff}
+.mic[data-state="listening"] .ring{animation:pulse 1.4s var(--ease) infinite}
+.ring{display:grid;place-items:center;width:132px;height:132px;border-radius:50%;background:rgba(255,255,255,.14)}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.35)}50%{box-shadow:0 0 0 18px rgba(255,255,255,0)}}
+.heard{min-height:2.9em;margin:var(--s-3) 2px 0;font-size:var(--t-lead);line-height:1.4;color:var(--ink)}
+.heard:empty::before{content:attr(data-empty);color:var(--muted);font-size:var(--t-body)}
+.reminder{display:flex;align-items:center;justify-content:center;gap:var(--s-2);margin:var(--s-2) 0 0;font-size:var(--t-small);color:var(--warn);font-weight:500;text-align:center}
+.reminder svg{width:16px;height:16px;flex:none}
+.type-link{align-self:center;margin-top:var(--s-1);min-height:44px;padding:0 var(--s-4);border:0;background:none;color:var(--muted);font-size:var(--t-small);text-decoration:underline;text-underline-offset:3px}
+.notice{margin:var(--s-3) 0 0;padding:var(--s-3) var(--s-4);border-radius:var(--r);background:var(--warn-soft);color:var(--ink);font-size:var(--t-small)}
+.notice[hidden]{display:none}
+
+/* Worklist */
+.list-head{display:flex;align-items:center;justify-content:space-between;gap:var(--s-2);margin:var(--s-1) 0 var(--s-3)}
+.list-head p{margin:0;color:var(--muted);font-size:var(--t-small)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--s-2);min-height:44px;padding:0 var(--s-4);border:1px solid var(--line);border-radius:var(--r-s);background:var(--surface);color:var(--ink);font-weight:500;font-size:var(--t-body);transition:background-color 120ms var(--ease),transform 120ms var(--ease)}
+.btn:active{transform:scale(.97);background:var(--surface-2)}
+.btn:disabled{opacity:.45}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{color:var(--bad)}
+.group{margin:0 0 var(--s-5)}
+.group h2{display:flex;align-items:baseline;gap:var(--s-2);margin:0 0 var(--s-2);font:600 var(--t-label)/1.2 var(--font-ui);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.group h2 .count{font-family:var(--font-num);letter-spacing:0}
+.cards{list-style:none;margin:0;padding:0;border-radius:var(--r);background:var(--surface);border:1px solid var(--line);overflow:hidden}
+.item{display:grid;grid-template-columns:44px 1fr;gap:var(--s-2);padding:var(--s-3) var(--s-3) var(--s-2) var(--s-2);border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.check{position:relative;display:grid;place-items:center;width:44px;height:44px;margin-top:-6px}
+.check input{appearance:none;-webkit-appearance:none;width:26px;height:26px;margin:0;border:2px solid var(--line);border-radius:8px;background:var(--surface);transition:background-color 120ms var(--ease),border-color 120ms var(--ease)}
+.check input:checked{background:var(--ok);border-color:var(--ok)}
+.check svg{position:absolute;width:16px;height:16px;color:var(--surface);pointer-events:none;opacity:0}
+.check input:checked + svg{opacity:1}
+.check::after{content:"";position:absolute;inset:0}
+.body{min-width:0}
+.line1{display:flex;flex-wrap:wrap;align-items:center;gap:6px var(--s-2)}
+.pt{font:600 var(--t-lead)/1.2 var(--font-num)}
+.what{font-weight:600;font-size:var(--t-body)}
+.chip{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:600;border:1px solid transparent;white-space:nowrap}
+.chip.R{background:var(--eb-r-bg);color:var(--eb-r-fg);border-color:var(--eb-r-bd)}
+.chip.L{background:var(--eb-l-bg);color:var(--eb-l-fg);border-color:var(--eb-l-bd)}
+.chip.Both{background:var(--surface-2);color:var(--ink);border-color:var(--line)}
+.chip.Emergency{background:var(--bad);color:#fff}
+.chip.Urgent{background:var(--bad-soft);color:var(--bad)}
+.chip.Soon{background:var(--warn-soft);color:var(--warn)}
+.chip.Routine{background:var(--surface-2);color:var(--muted)}
+.chip.time{background:var(--accent-soft);color:var(--ink)}
+.chip.flag{background:var(--warn-soft);color:var(--warn)}
+.note{margin:4px 0 0;font-size:var(--t-body)}
+.said{margin:6px 0 0;font-size:var(--t-small);color:var(--muted);overflow-wrap:anywhere}
+.said::before{content:"Said: "}
+.row-actions{display:flex;gap:var(--s-1);margin:2px 0 0 -10px}
+.link-btn{display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 10px;border:0;border-radius:var(--r-s);background:none;color:var(--accent);font-size:var(--t-small);font-weight:600}
+.link-btn:active{background:var(--accent-soft)}
+.link-btn svg{width:16px;height:16px}
+.item.done .what,.item.done .note,.item.done .pt{text-decoration:line-through;text-decoration-thickness:1.5px;color:var(--muted)}
+.item.done .chip{opacity:.55}
+.empty{margin:var(--s-6) auto;max-width:30ch;text-align:center;color:var(--muted)}
+.empty strong{display:block;margin-bottom:var(--s-2);font:500 var(--t-sub)/1.25 var(--font-head);color:var(--ink)}
+
+/* Tab bar */
+.tabs{position:relative;z-index:5;flex:none;display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2);
+  padding:var(--s-2) var(--s-4) calc(var(--s-2) + env(safe-area-inset-bottom,0px));background:color-mix(in srgb,var(--bg) 88%,transparent);
+  -webkit-backdrop-filter:saturate(1.4) blur(14px);backdrop-filter:saturate(1.4) blur(14px);border-top:1px solid var(--line)}
+.tab{display:flex;align-items:center;justify-content:center;gap:var(--s-2);min-height:48px;border:0;border-radius:var(--r);background:none;color:var(--muted);font-weight:600}
+.tab svg{width:20px;height:20px}
+.tab[aria-selected="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-r)}
+.badge{min-width:22px;height:22px;padding:0 6px;border-radius:999px;background:var(--accent);color:var(--accent-ink);font:600 12px/22px var(--font-num)}
+.badge:empty{display:none}
+
+/* Toast */
+.toast{position:fixed;left:var(--s-3);right:var(--s-3);bottom:calc(var(--tab-h) + env(safe-area-inset-bottom,0px) + var(--s-2));z-index:6;
+  display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-3) var(--s-3) var(--s-4);border-radius:var(--r);
+  background:var(--ink);color:var(--bg);box-shadow:var(--shadow-rl);
+  transform:translateY(12px);opacity:0;pointer-events:none;transition:opacity 160ms var(--ease),transform 160ms var(--ease)}
+.toast.show{transform:none;opacity:1}
+.toast.show button{pointer-events:auto}
+/* On Dictate the toast sits at the top, so the "never say names" reminder is never covered. */
+body[data-view="dictate"] .toast{top:calc(env(safe-area-inset-top,0px) + 64px);bottom:auto;transform:translateY(-12px)}
+body[data-view="dictate"] .toast.show{transform:none} /* only Undo catches taps; the rest lets taps through */
+.toast .msg{flex:1;min-width:0;font-size:var(--t-small);line-height:1.35}
+.toast .msg b{display:block;font:600 var(--t-body)/1.3 var(--font-ui)}
+.toast button{flex:none;min-height:44px;padding:0 var(--s-4);border:0;border-radius:var(--r-s);background:color-mix(in srgb,var(--bg) 16%,transparent);color:var(--bg);font-weight:700}
+
+/* Sheets (dialogs) */
+dialog{width:100%;max-width:560px;margin:auto auto 0;padding:0;border:0;border-radius:20px 20px 0 0;background:var(--surface);color:var(--ink);box-shadow:var(--shadow-rl)}
+dialog::backdrop{background:rgba(10,13,30,.45)}
+dialog[open]{animation:up 180ms var(--ease)}
+@keyframes up{from{transform:translateY(24px);opacity:.6}to{transform:none;opacity:1}}
+.sheet{padding:var(--s-5) var(--s-4) calc(var(--s-4) + env(safe-area-inset-bottom,0px))}
+.sheet h2{margin:0 0 var(--s-1);font:500 var(--t-sub)/1.25 var(--font-head)}
+.sheet p{margin:0 0 var(--s-3);color:var(--muted);font-size:var(--t-small)}
+.sheet textarea,.sheet input[type=number]{width:100%;font-size:16px;line-height:1.4;padding:var(--s-3);border:1px solid var(--line);border-radius:var(--r-s);background:var(--bg);color:var(--ink)}
+.sheet textarea{min-height:110px;resize:vertical}
+.sheet .row{display:flex;gap:var(--s-2);justify-content:flex-end;margin-top:var(--s-4)}
+.sheet .row .btn{flex:1}
+.setting{display:flex;align-items:center;justify-content:space-between;gap:var(--s-3);padding:var(--s-3) 0;border-top:1px solid var(--line)}
+.setting label{font-weight:500}
+.setting input[type=number]{width:96px;text-align:center}
+.privacy{margin-top:var(--s-3);padding:var(--s-3) var(--s-4);border-radius:var(--r);background:var(--surface-2);font-size:var(--t-small);color:var(--ink)}
+.privacy p{color:var(--ink);margin:0 0 var(--s-2)}
+.privacy p:last-child{margin:0}
+
+@media (hover:hover) and (pointer:fine){
+  .btn:hover{background:var(--surface-2)} .link-btn:hover{background:var(--accent-soft)} .icon-btn:hover{background:var(--surface-2)}
+}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <h1 id="title">Dictate <span class="sub" id="subtitle"></span></h1>
+    <button class="icon-btn" id="open-settings" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+    </button>
+  </header>
+
+  <main>
+    <section class="view" id="view-dictate" aria-labelledby="title">
+      <button class="mic" id="mic" data-state="idle" aria-describedby="reminder">
+        <span class="ring" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5M8.5 21.5h7"/></svg>
+        </span>
+        <span class="mic-label" id="mic-label">Tap to dictate</span>
+        <span class="mic-hint" id="mic-hint">Say the patient number, then what needs doing</span>
+      </button>
+      <p class="heard" id="heard" data-empty="What you say appears here" aria-live="polite"></p>
+      <p class="notice" id="mic-notice" role="status" hidden></p>
+      <p class="reminder" id="reminder">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>
+        Never say names or dates of birth
+      </p>
+      <button class="type-link" id="type-instead">Type instead</button>
+    </section>
+
+    <section class="view" id="view-list" hidden aria-label="Worklist">
+      <div class="list-head">
+        <p id="list-summary"></p>
+        <button class="btn" id="clear-ticked" disabled>Clear ticked</button>
+      </div>
+      <div id="groups"></div>
+    </section>
+  </main>
+
+  <nav class="tabs" role="tablist" aria-label="Screens">
+    <button class="tab" role="tab" id="tab-dictate" aria-selected="true" aria-controls="view-dictate">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3.5"/></svg>
+      Dictate
+    </button>
+    <button class="tab" role="tab" id="tab-list" aria-selected="false" aria-controls="view-list">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="m3.5 6 1.2 1.2L7 5M3.5 12l1.2 1.2L7 11M3.5 18l1.2 1.2L7 17"/></svg>
+      Worklist <span class="badge num" id="badge" aria-label="items to do"></span>
+    </button>
+  </nav>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <div class="msg" id="toast-msg"></div>
+  <button id="toast-undo">Undo</button>
+</div>
+
+<dialog id="dlg-type" aria-labelledby="type-title">
+  <form method="dialog" class="sheet" id="form-type">
+    <h2 id="type-title">Type instead</h2>
+    <p>Type it as you'd say it, e.g. "123456 refer cataract right eye routine".</p>
+    <label class="sr-only" for="type-text">Patient number and actions</label>
+    <textarea id="type-text" autocomplete="off" autocapitalize="none" enterkeyhint="done" spellcheck="false"></textarea>
+    <div class="row">
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="save" id="type-save">Sort and save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-edit" aria-labelledby="edit-title">
+  <form method="dialog" class="sheet" id="form-edit">
+    <h2 id="edit-title">Edit entry</h2>
+    <p>Change the words and it will be sorted again. Ticks on this patient are reset.</p>
+    <label class="sr-only" for="edit-text">Dictation</label>
+    <textarea id="edit-text" autofocus autocomplete="off" autocapitalize="none" spellcheck="false"></textarea>
+    <div class="row">
+      <button class="btn danger" value="delete">Delete</button>
+      <button class="btn" value="cancel" formnovalidate>Cancel</button>
+      <button class="btn primary" value="save">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-settings" aria-labelledby="settings-title">
+  <form method="dialog" class="sheet" id="form-settings">
+    <h2 id="settings-title">Settings</h2>
+    <div class="setting">
+      <label for="days">Delete entries after (days)</label>
+      <input type="number" id="days" min="1" max="30" step="1" inputmode="numeric">
+    </div>
+    <div class="setting">
+      <span>Delete everything now</span>
+      <button class="btn danger" type="button" id="wipe">Delete all</button>
+    </div>
+    <div class="privacy">
+      <p><strong>Stays on this phone.</strong> The worklist is saved only in this phone's browser storage. The app sends nothing anywhere and keeps no audio, only the text.</p>
+      <p><strong>Speech is turned into text by Apple</strong> (Safari's built-in dictation). Depending on your iPhone and iOS version, Apple may do this on the phone or on its servers, the same as keyboard dictation.</p>
+    </div>
+    <div class="row"><button class="btn primary" value="done" autofocus>Done</button></div>
+  </form>
+</dialog>
+
+
+<script>
+(() => {
+  "use strict";
+  const { parseDictation, describeAction } = CWLParser;
+  const KEY = "cwl.v1";
+  const $ = (id) => document.getElementById(id);
+  const DAY = 86400000;
+  const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+  /* ---------- Storage (this phone only) ---------- */
+  let state = load();
+  function load() {
+    try {
+      const s = JSON.parse(localStorage.getItem(KEY) || "null");
+      if (s && Array.isArray(s.entries)) return { settings: { days: 7, ...(s.settings || {}) }, entries: s.entries };
+    } catch (e) {}
+    return { settings: { days: 7 }, entries: [] };
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); }
+    catch (e) { showToast("Couldn't save on this phone", "Storage is full or blocked.", null); }
+  }
+  function purgeOld() {
+    const cutoff = Date.now() - state.settings.days * DAY;
+    const before = state.entries.length;
+    state.entries = state.entries.filter((e) => e.updatedAt >= cutoff);
+    if (state.entries.length !== before) save();
+  }
+  const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+
+  /* ---------- Turning a dictation into an entry ---------- */
+  function itemsFrom(r) {
+    const actions = r.actions.map((a) => ({ ...a, uid: uid(), done: false }));
+    const unsorted = r.unsorted.map((t) => ({ uid: uid(), text: t, done: false }));
+    return { actions, unsorted };
+  }
+  function addDictation(text) {
+    const r = parseDictation(text);
+    const snapshot = JSON.stringify(state.entries);
+    const now = Date.now();
+    const { actions, unsorted } = itemsFrom(r);
+    let entry = r.numberOk && state.entries.find((e) => e.numberOk && e.number === r.number && sameDay(e.createdAt, now));
+    if (entry) {
+      entry.texts.push(r.text);
+      entry.actions.push(...actions);
+      entry.unsorted.push(...unsorted);
+      entry.updatedAt = now;
+    } else {
+      entry = { id: uid(), number: r.number, numberOk: r.numberOk, createdAt: now, updatedAt: now,
+                texts: [r.text], actions, unsorted };
+      state.entries.push(entry);
+    }
+    save(); render();
+    const what = actions.length ? actions.map(describeAction).join(" · ") : "Unsorted: " + r.unsorted.join(" · ");
+    const head = r.numberOk ? r.number + (entry.texts.length > 1 ? " (added)" : "") : (r.number ? r.number + ": check number" : "No patient number heard");
+    showToast(head, what, () => { state.entries = JSON.parse(snapshot); save(); render(); });
+  }
+
+  /* ---------- Worklist ---------- */
+  const GROUPS = ["referrals", "fields", "records", "unsorted"];
+  function rows() {
+    const out = { referrals: [], fields: [], records: [], unsorted: [] };
+    const sorted = [...state.entries].sort((a, b) => a.createdAt - b.createdAt);
+    for (const e of sorted) {
+      for (const a of e.actions) out[e.numberOk ? a.group : "unsorted"].push({ e, it: a, kind: "action" });
+      for (const u of e.unsorted) out.unsorted.push({ e, it: u, kind: "unsorted" });
+    }
+    return out;
+  }
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const EYE = { R: "Right", L: "Left", Both: "Both eyes" };
+  const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
+  const ICON_EDIT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4zM13.5 6.5l4 4"/></svg>';
+  const ICON_COPY = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></svg>';
+
+  function rowHTML({ e, it, kind }) {
+    const num = e.number ? esc(e.number) : "No number";
+    let what, chips = "", note = "";
+    if (kind === "action") {
+      what = esc(it.label);
+      if (it.detail) chips += `<span class="chip time">${esc(it.detail)}</span>`;
+      if (it.eye) chips += `<span class="chip ${it.eye}">${EYE[it.eye]}</span>`;
+      if (it.timing) chips += `<span class="chip time">${esc(it.timing)}</span>`;
+      if (it.urgency) chips += `<span class="chip ${it.urgency}">${it.urgency}</span>`;
+      if (it.notes) note = `<p class="note">${esc(it.notes)}</p>`;
+    } else {
+      what = "Not sorted";
+      note = `<p class="note">${esc(it.text)}</p>`;
+    }
+    if (!e.numberOk) chips = `<span class="chip flag">Check number</span>` + chips;
+    const label = `${e.number || "No number"}: ${kind === "action" ? describeAction(it) : it.text}`;
+    return `<li class="item${it.done ? " done" : ""}" data-entry="${e.id}" data-uid="${it.uid}">
+      <label class="check"><input type="checkbox" ${it.done ? "checked" : ""} aria-label="Done: ${esc(label)}">${ICON_CHECK}</label>
+      <div class="body">
+        <div class="line1"><span class="pt">${num}</span><span class="what">${what}</span>${chips}</div>
+        ${note}
+        <p class="said">${esc(e.texts.join(" / "))}</p>
+        <div class="row-actions">
+          <button class="link-btn" data-act="edit" aria-label="Edit ${esc(e.number || "entry")}">${ICON_EDIT}Edit</button>
+          <button class="link-btn" data-act="copy" aria-label="Copy ${esc(label)}">${ICON_COPY}Copy</button>
+        </div>
+      </div>
+    </li>`;
+  }
+
+  function render() {
+    const r = rows();
+    let todo = 0, done = 0, html = "";
+    for (const g of GROUPS) {
+      const list = r[g];
+      if (!list.length) continue;
+      const left = list.filter((x) => !x.it.done).length;
+      todo += left; done += list.length - left;
+      html += `<section class="group" aria-labelledby="g-${g}"><h2 id="g-${g}">${esc(KEYWORDS.groups[g])} <span class="count">${left}</span></h2><ul class="cards">${list.map(rowHTML).join("")}</ul></section>`;
+    }
+    if (!html) html = `<div class="empty"><strong>Nothing to do yet</strong>Dictate after each patient and their actions appear here, sorted.</div>`;
+    $("groups").innerHTML = html;
+    $("badge").textContent = todo ? String(todo) : "";
+    const patients = state.entries.length;
+    $("list-summary").textContent = patients ? `${patients} patient${patients === 1 ? "" : "s"} · ${todo} to do` : "";
+    $("clear-ticked").disabled = !done;
+    $("clear-ticked").textContent = done ? `Clear ticked (${done})` : "Clear ticked";
+    const today = state.entries.filter((e) => sameDay(e.createdAt, Date.now())).length;
+    $("subtitle").textContent = view === "dictate"
+      ? (today ? `${today} patient${today === 1 ? "" : "s"} today` : "Ready")
+      : `Deletes after ${state.settings.days} days`;
+  }
+
+  function findItem(entryId, itemUid) {
+    const e = state.entries.find((x) => x.id === entryId);
+    if (!e) return {};
+    const it = e.actions.find((a) => a.uid === itemUid) || e.unsorted.find((u) => u.uid === itemUid);
+    return { e, it };
+  }
+
+  $("groups").addEventListener("change", (ev) => {
+    const li = ev.target.closest(".item");
+    if (!li || ev.target.type !== "checkbox") return;
+    const { it } = findItem(li.dataset.entry, li.dataset.uid);
+    if (!it) return;
+    it.done = ev.target.checked;
+    li.classList.toggle("done", it.done);
+    save();
+    clearTimeout(renderSoon); renderSoon = setTimeout(render, 250);
+  });
+  let renderSoon;
+
+  $("groups").addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-act]");
+    if (!btn) return;
+    const li = btn.closest(".item");
+    const { e, it } = findItem(li.dataset.entry, li.dataset.uid);
+    if (!e) return;
+    if (btn.dataset.act === "copy") {
+      const text = `${e.number || "No number"} ${it.label ? describeAction(it) : it.text}`;
+      const ok = await copy(text);
+      showToast(ok ? "Copied" : "Couldn't copy", ok ? text : "Press and hold the text to copy it instead.", null, 2500);
+    }
+    if (btn.dataset.act === "edit") openEdit(e);
+  });
+
+  async function copy(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) {}
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select(); const ok = document.execCommand("copy"); ta.remove(); return ok;
+    } catch (e) { return false; }
+  }
+
+  $("clear-ticked").addEventListener("click", () => {
+    const snapshot = JSON.stringify(state.entries);
+    let n = 0;
+    for (const e of state.entries) {
+      n += e.actions.filter((a) => a.done).length + e.unsorted.filter((u) => u.done).length;
+      e.actions = e.actions.filter((a) => !a.done);
+      e.unsorted = e.unsorted.filter((u) => !u.done);
+    }
+    state.entries = state.entries.filter((e) => e.actions.length || e.unsorted.length);
+    save(); render();
+    showToast(`Cleared ${n} ticked`, "", () => { state.entries = JSON.parse(snapshot); save(); render(); });
+  });
+
+  /* ---------- Edit ---------- */
+  let editing = null;
+  function openEdit(e) {
+    editing = e.id;
+    $("edit-text").value = e.texts.join(", ");
+    $("dlg-edit").showModal();
+  }
+  $("dlg-edit").addEventListener("close", () => {
+    const v = $("dlg-edit").returnValue;
+    const i = state.entries.findIndex((x) => x.id === editing);
+    if (i < 0) return;
+    const snapshot = JSON.stringify(state.entries);
+    if (v === "delete") {
+      state.entries.splice(i, 1);
+      save(); render();
+      showToast("Deleted", "", () => { state.entries = JSON.parse(snapshot); save(); render(); });
+    } else if (v === "save") {
+      const text = $("edit-text").value.trim();
+      if (!text) return;
+      const r = parseDictation(text);
+      const { actions, unsorted } = itemsFrom(r);
+      Object.assign(state.entries[i], { number: r.number, numberOk: r.numberOk, texts: [r.text], actions, unsorted, updatedAt: Date.now() });
+      save(); render();
+      showToast("Updated " + (r.number || ""), actions.map(describeAction).join(" · ") || "Unsorted", () => { state.entries = JSON.parse(snapshot); save(); render(); });
+    }
+  });
+
+  /* ---------- Type instead ---------- */
+  function openType(message) {
+    $("type-text").value = "";
+    if (message) { $("mic-notice").textContent = message; $("mic-notice").hidden = false; }
+    $("dlg-type").showModal();
+    setTimeout(() => $("type-text").focus(), 50);
+  }
+  $("type-instead").addEventListener("click", () => openType());
+  $("dlg-type").addEventListener("close", () => {
+    if ($("dlg-type").returnValue === "save") {
+      const t = $("type-text").value.trim();
+      if (t) addDictation(t);
+    }
+  });
+  $("type-text").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); $("type-save").click(); }
+  });
+
+  /* ---------- Settings ---------- */
+  $("open-settings").addEventListener("click", () => { $("days").value = state.settings.days; $("dlg-settings").showModal(); });
+  $("days").addEventListener("change", () => {
+    const d = Math.max(1, Math.min(30, Math.round(+$("days").value || 7)));
+    $("days").value = d; state.settings.days = d; save(); purgeOld(); render();
+  });
+  $("wipe").addEventListener("click", () => {
+    const snapshot = JSON.stringify(state.entries);
+    state.entries = []; save(); render();
+    $("dlg-settings").close();
+    showToast("Deleted everything", "", () => { state.entries = JSON.parse(snapshot); save(); render(); });
+  });
+
+  /* ---------- Toast with Undo ---------- */
+  let toastTimer, undoFn = null;
+  function showToast(head, body, onUndo, ms = 6000) {
+    $("toast-msg").innerHTML = `<b>${esc(head)}</b>${body ? esc(body) : ""}`;
+    undoFn = onUndo;
+    $("toast-undo").hidden = !onUndo;
+    $("toast").classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(hideToast, ms);
+  }
+  function hideToast() { $("toast").classList.remove("show"); undoFn = null; }
+  $("toast-undo").addEventListener("click", () => { if (undoFn) undoFn(); hideToast(); showToast("Undone", "", null, 1800); });
+
+  /* ---------- Tabs ---------- */
+  let view = "dictate";
+  function show(v) {
+    view = v;
+    document.body.dataset.view = v;
+    $("view-dictate").hidden = v !== "dictate";
+    $("view-list").hidden = v !== "list";
+    $("tab-dictate").setAttribute("aria-selected", v === "dictate");
+    $("tab-list").setAttribute("aria-selected", v === "list");
+    $("title").firstChild.nodeValue = v === "dictate" ? "Dictate " : "Worklist ";
+    render();
+  }
+  $("tab-dictate").addEventListener("click", () => show("dictate"));
+  $("tab-list").addEventListener("click", () => show("list"));
+
+  /* ---------- Voice: Safari's built-in speech recognition only ---------- */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, listening = false, finalText = "", silenceTimer;
+  const mic = $("mic");
+  function setMic(s) {
+    listening = s === "listening";
+    mic.dataset.state = s;
+    $("mic-label").textContent = listening ? "Listening…" : "Tap to dictate";
+    $("mic-hint").textContent = listening ? "Pause to finish, or tap to stop" : "Say the patient number, then what needs doing";
+    mic.setAttribute("aria-label", listening ? "Stop listening" : "Start dictating");
+  }
+  function noSpeech(message) {
+    setMic("idle");
+    openType(message);
+  }
+  function start() {
+    if (!SR) return noSpeech("Speech recognition isn't available in this browser. Type instead, or open the app in Safari.");
+    $("mic-notice").hidden = true;
+    finalText = "";
+    $("heard").textContent = "";
+    rec = new SR();
+    rec.lang = "en-GB";
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.maxAlternatives = 1;
+    // Ask for on-device recognition wherever the browser supports it (Safari ignores this today).
+    try { if ("processLocally" in rec) rec.processLocally = true; } catch (e) {}
+    rec.onresult = (ev) => {
+      let interim = "";
+      finalText = "";
+      for (let i = 0; i < ev.results.length; i++) {
+        const t = ev.results[i][0].transcript;
+        if (ev.results[i].isFinal) finalText += t; else interim += t;
+      }
+      $("heard").textContent = (finalText + " " + interim).trim();
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(() => { try { rec.stop(); } catch (e) {} }, 1800);
+    };
+    rec.onerror = (ev) => {
+      clearTimeout(silenceTimer);
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        noSpeech("The microphone or Siri & Dictation is turned off for this app. Turn on Settings › Safari › Microphone and Settings › Siri › Dictation, or type instead.");
+      } else if (ev.error === "no-speech") {
+        setMic("idle"); $("heard").textContent = ""; showToast("Didn't hear anything", "Tap the button and try again.", null, 2500);
+      } else if (ev.error === "network") {
+        noSpeech("Apple's dictation couldn't be reached. Type instead for now.");
+      } else if (ev.error !== "aborted") {
+        noSpeech("Speech recognition stopped (" + ev.error + "). Type instead for now.");
+      }
+    };
+    rec.onend = () => {
+      clearTimeout(silenceTimer);
+      const text = (finalText || $("heard").textContent).trim();
+      setMic("idle");
+      if (text) addDictation(text);
+      rec = null;
+    };
+    try { rec.start(); setMic("listening"); }
+    catch (e) { noSpeech("Speech recognition couldn't start. Type instead for now."); }
+  }
+  mic.addEventListener("click", () => {
+    if (listening && rec) { try { rec.stop(); } catch (e) {} return; }
+    start();
+  });
+
+  /* ---------- Start up ---------- */
+  purgeOld();
+  setMic("idle");
+  show("dictate");
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { purgeOld(); render(); } });
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
