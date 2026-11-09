@@ -26,6 +26,10 @@ If the mic button does nothing or shows a message:
 - **Worklist:** tick things off as you do them, then tap **Clear ticked**. Anything older than 7 days is deleted automatically (change this in Settings).
 - **Never say names or dates of birth.** Patient number and clinical action only.
 
+## Getting updates
+
+When a new version is published, close the app (swipe it away) and open it again, on Wi-Fi if you can. It may take two opens. The version number is at the bottom of **Settings**, so you can check which one your phone has. The speech model is only downloaded once; updates don't download it again.
+
 ## Teaching it new phrases
 
 Open `index.html` in any text editor. Near the top is the block that starts `const KEYWORDS = {`. Each list is plain words in quotes. Add your phrase to the right list, save, then check it with:
