@@ -20,7 +20,8 @@ If the mic button does nothing or shows a message:
 
 ## Using it
 
-- **Dictate:** tap, say e.g. "123456 refer cataract right eye routine", then pause. It saves by itself. Tap **Undo** on the message if it misheard.
+- **Dictate:** tap, wait for the button to say **Speak now**, then say e.g. "123456 refer cataract right eye routine" and pause. It saves by itself. Tap **Undo** on the message if it misheard.
+- **CLs and records:** say "order CLs" (or "order dailies", "order contact lenses") and it goes under **To order**. Say "complete record" or "finish notes" and it goes under **Records to update**.
 - **Same patient again:** say the same number again the same day and the new actions are added to that patient.
 - **Worklist:** tick things off as you do them, then tap **Clear ticked**. Anything older than 7 days is deleted automatically (change this in Settings).
 - **Never say names or dates of birth.** Patient number and clinical action only.
