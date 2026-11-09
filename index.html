@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Worklist</title>
 <meta name="description" content="Dictate what each patient needs; get a sorted to-do list. Stays on this phone.">
@@ -630,7 +630,7 @@ main{flex:1;min-height:0;position:relative}
 .mic .mic-hint{font-size:var(--t-small);opacity:.8;max-width:26ch;text-align:center}
 .mic[data-state="listening"]{background:var(--bad);color:#fff}
 .mic[data-state="listening"] .ring{animation:pulse 1.4s var(--ease) infinite}
-.mic[data-state="starting"]{background:var(--surface-2);color:var(--ink)}
+.mic[data-state="starting"],.mic[data-state="loading"],.mic[data-state="working"]{background:var(--surface-2);color:var(--ink)}
 .ring{display:grid;place-items:center;width:132px;height:132px;border-radius:50%;background:rgba(255,255,255,.14)}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.35)}50%{box-shadow:0 0 0 18px rgba(255,255,255,0)}}
 .heard{min-height:2.9em;margin:var(--s-3) 2px 0;font-size:var(--t-lead);line-height:1.4;color:var(--ink)}
@@ -825,8 +825,16 @@ dialog[open]{animation:up 180ms var(--ease)}
     <div class="setting">
       <label for="mic-mode">Big button uses</label>
       <select id="mic-mode">
-        <option value="keyboard">Keyboard mic (reliable)</option>
+        <option value="whisper">Whisper on this phone</option>
+        <option value="keyboard">Keyboard mic</option>
         <option value="safari">Safari speech (can stick)</option>
+      </select>
+    </div>
+    <div class="setting" id="model-setting">
+      <label for="model">Whisper model</label>
+      <select id="model">
+        <option value="whisper-base.en">Base (more accurate)</option>
+        <option value="whisper-tiny.en">Tiny (faster)</option>
       </select>
     </div>
     <div class="setting">
@@ -841,7 +849,7 @@ dialog[open]{animation:up 180ms var(--ease)}
       <p><strong>Stays on this phone.</strong> The worklist is saved only in this phone's browser storage. The app sends nothing anywhere and keeps no audio, only the text.</p>
       <p><strong>Speech is turned into text by Apple</strong> (Safari's built-in dictation). Depending on your iPhone and iOS version, Apple may do this on the phone or on its servers, the same as keyboard dictation.</p>
     </div>
-    <p class="version">Version 7 (keyboard mic)</p>
+    <p class="version">Version 8 (Whisper on this phone)</p>
     <div class="row"><button class="btn primary" value="done" autofocus>Done</button></div>
   </form>
 </dialog>
@@ -1096,8 +1104,14 @@ dialog[open]{animation:up 180ms var(--ease)}
   });
 
   /* ---------- Settings ---------- */
-  $("open-settings").addEventListener("click", () => { $("days").value = state.settings.days; $("mic-mode").value = micMode(); $("dlg-settings").showModal(); });
-  $("mic-mode").addEventListener("change", () => { state.settings.micMode = $("mic-mode").value; save(); });
+  $("open-settings").addEventListener("click", () => { $("days").value = state.settings.days; $("mic-mode").value = micMode(); $("model").value = whisperModel(); $("model-setting").hidden = micMode() !== "whisper"; $("dlg-settings").showModal(); });
+  $("mic-mode").addEventListener("change", () => {
+    state.settings.micMode = $("mic-mode").value; save();
+    $("model-setting").hidden = micMode() !== "whisper";
+    if (micMode() === "whisper") W.load(); else if (micState === "loading") setMic("idle");
+  });
+  $("model").addEventListener("change", () => { state.settings.model = $("model").value; save(); W.load(); });
+  function whisperModel() { return state.settings.model || "whisper-base.en"; }
   $("days").addEventListener("change", () => {
     const d = Math.max(1, Math.min(30, Math.round(+$("days").value || 7)));
     $("days").value = d; state.settings.days = d; save(); purgeOld(); render();
@@ -1158,7 +1172,7 @@ dialog[open]{animation:up 180ms var(--ease)}
   //   It never starts the mic by itself, so it can't loop. Also restarts when you
   //   come back after a minute away.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  function micMode() { return state.settings.micMode || "keyboard"; }
+  function micMode() { return state.settings.micMode || "whisper"; }
   const SILENCE_MS = 2000;   // stop this long after the last word
   const NOTHING_MS = 8000;   // give up if nothing at all is heard for this long
   let rec = null, micState = "idle", finalText = "", interimText = "", timers = {}, startedAt = 0, finished = false, gotError = false;
@@ -1167,6 +1181,8 @@ dialog[open]{animation:up 180ms var(--ease)}
     idle: ["Tap to dictate", "Say the patient number, then what needs doing", "Start dictating"],
     starting: ["Getting ready…", "Wait for “Speak now”", "Starting microphone"],
     listening: ["Speak now", "Pause to finish, or tap to stop", "Stop listening"],
+    loading: ["Getting ready…", "Loading the speech model", "Loading the speech model"],
+    working: ["Working…", "Turning your words into text on this phone", "Working"],
   };
   function setMic(s) {
     micState = s;
@@ -1258,6 +1274,7 @@ dialog[open]{animation:up 180ms var(--ease)}
     begin();
   }
   mic.addEventListener("click", () => {
+    if (micMode() === "whisper") return W.tap();
     if (micMode() === "keyboard" && micState === "idle") return openType(null, true);
     if (micState === "listening") return stopRec();
     if (micState === "starting") return; // ignore double taps while the mic opens
@@ -1275,11 +1292,124 @@ dialog[open]{animation:up 180ms var(--ease)}
   // Coming back after a minute or more: restart quietly so the mic starts fresh.
   let hiddenAt = 0;
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) { hiddenAt = Date.now(); if (rec) stopRec(); return; }
+    if (document.hidden) { hiddenAt = Date.now(); if (rec) stopRec(); if (micState === "listening" && micMode() === "whisper") W.stop(); return; }
+    if (micMode() !== "safari") return; // only Safari speech needs a fresh page
     const away = hiddenAt && Date.now() - hiddenAt > 60000;
     const busy = micState !== "idle" || document.querySelector("dialog[open]");
     if (away && !busy) location.reload();
   });
+
+  /* ---------- Whisper: speech to text on this phone ---------- */
+  // The speech model runs inside the app (whisper/worker.js), so the audio never
+  // leaves the phone, not even to Apple. The recording is only held in memory
+  // until it has been turned into text, then thrown away. The mic is fully
+  // released after every recording, so the next tap always starts fresh.
+  const W = (() => {
+    const QUIET = 0.015, PAUSE_MS = 1500, MAX_MS = 25000, NOTHING_MS = 8000;
+    let worker = null, readyId = null, loadingId = null, stream, recorder, chunks, ctx, analyser, raf, heardAt, t0, stopping;
+    function ensureWorker() {
+      if (worker) return;
+      worker = new Worker("whisper/worker.js", { type: "module" });
+      worker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === "progress" && micState === "loading") $("mic-hint").textContent = `Loading the speech model: ${m.pct}%`;
+        if (m.type === "ready") { if (m.id !== loadingId) return; readyId = m.id; loadingId = null; if (micState === "loading") setMic("idle"); }
+        if (m.type === "text") done(m.text);
+        if (m.type === "error") {
+          loadingId = null; setMic("idle");
+          showToast("Whisper didn't work", m.message.slice(0, 120) + " Use Type instead, or switch the big button in Settings.", null, 8000);
+        }
+      };
+      worker.onerror = () => { setMic("idle"); showToast("Whisper couldn't start", "Switch the big button to Keyboard mic in Settings.", null, 8000); };
+    }
+    function load() {
+      if (micMode() !== "whisper") return;
+      if (!window.Worker || !window.MediaRecorder || !navigator.mediaDevices) return;
+      ensureWorker();
+      const id = whisperModel();
+      if (readyId === id || loadingId === id) return;
+      readyId = null; loadingId = id;
+      if (micState === "idle") setMic("loading");
+      worker.postMessage({ type: "load", id });
+    }
+    async function tap() {
+      if (micState === "listening") return stop();
+      if (micState !== "idle") return; // loading or working: wait
+      if (!window.MediaRecorder || !navigator.mediaDevices) return noSpeech("This phone can't record audio here. Type instead.");
+      if (readyId !== whisperModel()) return load();
+      $("mic-notice").hidden = true; $("heard").textContent = "";
+      setMic("starting");
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); }
+      catch (e) { return noSpeech("The microphone is turned off for this app. Turn on Settings › Safari › Microphone, or type instead."); }
+      try {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        await ctx.resume();
+        analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+        ctx.createMediaStreamSource(stream).connect(analyser);
+        chunks = [];
+        recorder = new MediaRecorder(stream);
+        recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+        recorder.onstop = finish;
+        recorder.start();
+      } catch (e) { release(); return noSpeech("The recording couldn't start. Type instead."); }
+      t0 = performance.now(); heardAt = 0; stopping = false;
+      setMic("listening");
+      watch();
+    }
+    function watch() {
+      const buf = new Float32Array(analyser.fftSize);
+      const tick = () => {
+        if (micState !== "listening") return;
+        analyser.getFloatTimeDomainData(buf);
+        let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+        const now = performance.now();
+        if (Math.sqrt(sum / buf.length) > QUIET) heardAt = now;
+        if ((heardAt && now - heardAt > PAUSE_MS) || now - t0 > MAX_MS || (!heardAt && now - t0 > NOTHING_MS)) return stop();
+        raf = requestAnimationFrame(tick);
+      };
+      raf = requestAnimationFrame(tick);
+    }
+    function stop() {
+      if (stopping) return; stopping = true;
+      cancelAnimationFrame(raf);
+      setMic("working");
+      try { recorder.stop(); } catch (e) { finish(); }
+    }
+    function release() {
+      try { stream && stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+      stream = null;
+    }
+    async function finish() {
+      release();
+      try {
+        if (!heardAt) throw new Error("quiet");
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/mp4" });
+        chunks = [];
+        const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+        const off = new OfflineAudioContext(1, Math.max(1, Math.ceil(decoded.duration * 16000)), 16000);
+        const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
+        const audio = (await off.startRendering()).getChannelData(0);
+        worker.postMessage({ type: "transcribe", audio }, [audio.buffer]);
+      } catch (e) {
+        setMic("idle");
+        showToast("Didn't hear anything", "Tap and speak, then pause.", null, 3500);
+      } finally {
+        chunks = [];
+        if (ctx) { ctx.close().catch(() => {}); ctx = null; }
+      }
+    }
+    // Whisper writes numbers like "123,456" or "123 456", and sometimes "hears"
+    // "you" or "thank you" in silence.
+    function done(text) {
+      setMic("idle");
+      let t = String(text || "").replace(/(\d)[,\s](?=\d{3}\b)/g, "$1").replace(/[.!]+$/, "").trim();
+      if (/^[\s.,!?]*(you|thank you|thanks for watching|bye)?[\s.,!?]*$/i.test(t)) t = "";
+      if (!t) return showToast("Didn't hear anything", "Tap and speak, then pause.", null, 3500);
+      $("heard").textContent = t;
+      addDictation(t);
+    }
+    return { load, tap, stop };
+  })();
 
   /* ---------- Start up ---------- */
   purgeOld();
@@ -1293,6 +1423,7 @@ dialog[open]{animation:up 180ms var(--ease)}
   } catch (e) {}
   setMic("idle");
   show("dictate");
+  W.load();
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { purgeOld(); render(); } });
   if ("serviceWorker" in navigator && location.protocol !== "file:") {
     navigator.serviceWorker.register("sw.js").catch(() => {});
