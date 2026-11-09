@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Test page only. connect-src 'self': it loads its own speech model files, nothing from anywhere else. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; manifest-src 'self'; worker-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Whisper test</title>
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Whisper test">
+<link rel="manifest" href="whisper/manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<style>
+@font-face{font-family:"Geist";src:url(fonts/geist-latin-wght-normal.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Geist Mono";src:url(fonts/geist-mono-latin-wght-normal.woff2) format("woff2");font-weight:100 900;font-display:swap}
+@font-face{font-family:"Outfit";src:url(fonts/outfit-latin-500-normal.woff2) format("woff2");font-weight:500;font-display:swap}
+:root{
+  --bg:#F6F7FB; --surface:#FFFFFF; --ink:#0E1330; --muted:#5A6378; --line:#DDE2EE;
+  --accent:#5557F0; --accent-ink:#FFFFFF; --bad:#AE2417; --ok:#1C7443; --warn:#955600;
+  --font-ui:"Geist", system-ui, -apple-system, sans-serif; --font-num:"Geist Mono", ui-monospace, Menlo, monospace;
+  --font-head:"Outfit", "Geist", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#0A0D1E; --surface:#12162E; --ink:#E9ECF7; --muted:#A1A9C0; --line:#283057;
+    --accent:#AFC0FF; --accent-ink:#0E1330; --bad:#FF8B7B; --ok:#6DD39B; --warn:#F1B45C; color-scheme:dark; }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--font-ui);
+  padding:calc(16px + env(safe-area-inset-top,0px)) 16px calc(24px + env(safe-area-inset-bottom,0px))}
+main{max-width:560px;margin:0 auto}
+h1{font:500 24px/1.2 var(--font-head);margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 16px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+label{font-weight:500}
+select{font:inherit;font-size:16px;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:8px;min-height:44px;padding:0 12px}
+#status{margin:12px 0;font-size:13px;color:var(--muted);min-height:20px}
+#status.bad{color:var(--bad)}
+.mic{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;min-height:42vh;border:0;border-radius:14px;
+  background:var(--accent);color:var(--accent-ink);font:500 24px/1.2 var(--font-head);cursor:pointer;touch-action:manipulation;
+  transition:background-color 150ms}
+.mic small{font:400 13px/1.3 var(--font-ui);opacity:.85}
+.mic[data-state="listening"]{background:var(--bad);color:#fff}
+.mic[data-state="working"],.mic:disabled{opacity:.6}
+.mic svg{width:56px;height:56px}
+.reminder{text-align:center;color:var(--warn);font-size:13px;margin:8px 0 16px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 16px;margin:0 0 8px}
+.card .heard{font-size:17px;margin:0 0 4px}
+.card .meta{font-size:13px;color:var(--muted)}
+.card ul{margin:8px 0 0;padding-left:20px}
+.num{font-family:var(--font-num)}
+.note{font-size:13px;color:var(--muted);margin-top:24px}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<main>
+  <h1>Whisper test</h1>
+  <p class="sub">Speech is turned into text on this phone. Nothing is saved to your worklist and nothing is sent anywhere.</p>
+
+  <div class="row">
+    <label for="model">Model</label>
+    <select id="model">
+      <option value="whisper-tiny.en">Tiny (faster, about 40 MB)</option>
+      <option value="whisper-base.en">Base (more accurate, about 75 MB)</option>
+    </select>
+  </div>
+  <p id="status" role="status">Loading…</p>
+
+  <button class="mic" id="mic" data-state="loading" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    <span id="mic-label">Loading model…</span>
+    <small id="mic-hint">The first time takes a while</small>
+  </button>
+  <p class="reminder">Never say names or dates of birth</p>
+
+  <div id="results"></div>
+
+  <p class="note">Version W1. Test page for Clinic Worklist. Uses OpenAI's Whisper model running inside Safari (transformers.js and ONNX Runtime), all stored with the app.</p>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const SILENCE_MS = 1500, MAX_MS = 20000, LEVEL = 0.015;
+  let worker, ready = false, state = "loading", parser = null;
+  let stream, recorder, chunks, ctx, analyser, raf, heardAt, startedAt, stopping;
+
+  // Reuse the real app's sorting rules: read the parser from index.html.
+  fetch("index.html").then((r) => r.text()).then((html) => {
+    const m = html.match(/<script id="parser">([\s\S]*?)<\/script>/);
+    if (!m) return;
+    const s = document.createElement("script");
+    s.src = URL.createObjectURL(new Blob([m[1]], { type: "text/javascript" }));
+    s.onload = () => { parser = window.CWLParser; };
+    document.head.appendChild(s);
+  }).catch(() => {});
+
+  function setState(s, label, hint) {
+    state = s;
+    $("mic").dataset.state = s;
+    $("mic").disabled = s === "loading" || s === "working";
+    $("mic-label").textContent = label;
+    $("mic-hint").textContent = hint || "";
+  }
+  function status(t, bad) { $("status").textContent = t; $("status").classList.toggle("bad", !!bad); }
+
+  function startWorker() {
+    worker = new Worker("whisper/worker.js", { type: "module" });
+    worker.onmessage = (e) => {
+      const m = e.data;
+      if (m.type === "progress") status(`Loading ${m.file.split("/").pop()}: ${m.pct}%`);
+      if (m.type === "ready") { if (m.id !== $("model").value) return; ready = true; $("model").disabled = false; status(`Model ready (loaded in ${(m.ms / 1000).toFixed(1)} s).`); setState("idle", "Tap to dictate", "Say the patient number, then what needs doing"); }
+      if (m.type === "text") showResult(m.text, m.ms);
+      if (m.type === "error") { $("model").disabled = false; status("Problem: " + m.message, true); if (ready) setState("idle", "Tap to dictate", "Try again"); }
+    };
+    worker.onerror = (e) => status("The speech engine couldn't start: " + (e.message || "unknown error"), true);
+    loadModel();
+  }
+  function loadModel() {
+    ready = false;
+    $("model").disabled = true; // one model load at a time
+    setState("loading", "Loading model…", "The first time takes a while");
+    status("Loading…");
+    worker.postMessage({ type: "load", id: $("model").value });
+  }
+  $("model").addEventListener("change", loadModel);
+
+  async function startRec() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch (e) {
+      status("The microphone is blocked. Allow it in Settings › Safari › Microphone.", true);
+      return;
+    }
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser(); analyser.fftSize = 1024;
+    src.connect(analyser);
+    chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    recorder.onstop = finishRec;
+    recorder.start();
+    startedAt = performance.now(); heardAt = 0; stopping = false;
+    setState("listening", "Speak now", "Pause to finish, or tap to stop");
+    watch();
+  }
+  function watch() {
+    const buf = new Float32Array(analyser.fftSize);
+    const tick = () => {
+      if (state !== "listening") return;
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0; for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length), now = performance.now();
+      if (rms > LEVEL) heardAt = now;
+      if ((heardAt && now - heardAt > SILENCE_MS) || now - startedAt > MAX_MS || (!heardAt && now - startedAt > 8000)) return stopRec();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+  }
+  function stopRec() {
+    if (stopping) return; stopping = true;
+    cancelAnimationFrame(raf);
+    setState("working", "Working…", "Turning speech into text on this phone");
+    try { recorder.stop(); } catch (e) { finishRec(); }
+  }
+  // Always let go of the microphone completely, so the next tap starts fresh.
+  function releaseMic() {
+    try { stream && stream.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    stream = null;
+  }
+  async function finishRec() {
+    releaseMic();
+    const t0 = performance.now();
+    try {
+      const blob = new Blob(chunks, { type: recorder.mimeType || "audio/mp4" });
+      const decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+      const len = Math.max(1, Math.ceil(decoded.duration * 16000));
+      const off = new OfflineAudioContext(1, len, 16000);
+      const src = off.createBufferSource(); src.buffer = decoded; src.connect(off.destination); src.start();
+      const audio = (await off.startRendering()).getChannelData(0);
+      ctx.close().catch(() => {}); ctx = null;
+      if (!heardAt) { status("Didn't hear anything. Tap to try again."); return setState("idle", "Tap to dictate", "Say the patient number, then what needs doing"); }
+      status(`Recorded ${decoded.duration.toFixed(1)} s. Prepared in ${Math.round(performance.now() - t0)} ms.`);
+      worker.postMessage({ type: "transcribe", audio }, [audio.buffer]);
+    } catch (e) {
+      status("Couldn't read the recording: " + e.message, true);
+      setState("idle", "Tap to dictate", "Try again");
+    }
+  }
+  $("mic").addEventListener("click", () => {
+    if (state === "idle") startRec();
+    else if (state === "listening") stopRec();
+  });
+
+  // Whisper writes numbers like "123,456" or "123 456": join them back up.
+  const tidy = (t) => t.replace(/(\d)[,\s](?=\d{3}\b)/g, "$1").replace(/[.]$/, "");
+  function showResult(text, ms) {
+    setState("idle", "Tap to dictate", "Say the patient number, then what needs doing");
+    status(`Done in ${(ms / 1000).toFixed(1)} s.`);
+    // Whisper sometimes "hears" these in silence: treat them as nothing.
+    let t = tidy(text);
+    if (/^[\s.,!?]*(you|thank you|thanks for watching|bye)?[\s.,!?]*$/i.test(t)) t = "";
+    let sorted = "";
+    if (parser && t) {
+      const r = parser.parseDictation(t);
+      const items = r.actions.map((a) => esc(parser.describeAction(a))).concat(r.unsorted.map((u) => "Unsorted: " + esc(u)));
+      sorted = `<div class="meta">Patient <span class="num">${esc(r.number || "none heard")}</span>${r.numberOk ? "" : " (check number)"}</div><ul>${items.map((i) => `<li>${i}</li>`).join("")}</ul>`;
+    }
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `<p class="heard">${esc(t || "(nothing heard)")}</p><div class="meta">${(ms / 1000).toFixed(1)} s · ${esc($("model").selectedOptions[0].textContent.split(" (")[0])}</div>${sorted}`;
+    $("results").prepend(card);
+  }
+
+  if (!navigator.mediaDevices || !window.MediaRecorder) { status("This browser can't record audio.", true); return; }
+  startWorker();
+  // Same offline cache as the app (it keeps the model after the first download).
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>

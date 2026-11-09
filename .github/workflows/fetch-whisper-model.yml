@@ -1,0 +1,45 @@
+# One-off job: downloads the official Whisper model files from Hugging Face into
+# whisper/models/ for the on-phone test page. It runs on GitHub's servers when this
+# file changes on the whisper-test branch (or from the Actions tab). Nothing here
+# runs on the phone, and the phone never contacts Hugging Face.
+name: Fetch Whisper model
+on:
+  workflow_dispatch:
+  push:
+    branches: [whisper-test]
+    paths: [.github/workflows/fetch-whisper-model.yml]
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Plain git instead of the checkout action (the action lookup kept failing on GitHub's side).
+      - name: Get the branch
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --depth 1 --branch whisper-test "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
+      - name: Download from Hugging Face
+        run: |
+          set -euo pipefail
+          for m in whisper-tiny.en whisper-base.en; do
+            d="whisper/models/onnx-community/$m"
+            mkdir -p "$d/onnx"
+            for f in config.json generation_config.json preprocessor_config.json tokenizer.json tokenizer_config.json \
+                     onnx/encoder_model_quantized.onnx onnx/decoder_model_merged_quantized.onnx; do
+              curl -fsSL --retry 3 -o "$d/$f" "https://huggingface.co/onnx-community/$m/resolve/main/$f"
+            done
+            curl -fsSL "https://huggingface.co/api/models/onnx-community/$m" -o /tmp/$m.json
+            jq -r '.sha' /tmp/$m.json > "$d/HF_COMMIT.txt"
+          done
+          (cd whisper/models && find . -type f ! -name SHA256SUMS.txt -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          ls -laR whisper/models
+      - name: Commit the files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898699+github-actions[bot]@users.noreply.github.com"
+          git add whisper/models
+          git diff --cached --quiet || git commit -m "Add official Whisper model files (tiny.en, base.en, quantized) from Hugging Face"
+          git push
