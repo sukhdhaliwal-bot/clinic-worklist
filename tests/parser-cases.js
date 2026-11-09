@@ -198,4 +198,64 @@ export default [
       "Unsorted: \"check dry eye drops, right eye\"",
     ],
   },
+  {
+    about: "CL order on its own",
+    say: "123456 order CLs",
+    number: "123456",
+    expect: [
+      "To order: Order CLs",
+    ],
+  },
+  {
+    about: "Fields, CL order and record to complete in one",
+    say: "234567 fields normal, order up contact lenses, complete record",
+    number: "234567",
+    expect: [
+      "Records to update: Fields: normal",
+      "To order: Order CLs",
+      "Records to update: Complete record",
+    ],
+  },
+  {
+    about: "Referral plus a record to complete",
+    say: "345678 refer cataract right eye routine, records need completing",
+    number: "345678",
+    expect: [
+      "Referrals to write: Refer: cataract (right, routine)",
+      "Records to update: Complete record",
+    ],
+  },
+  {
+    about: "Dotted C.L.s with an eye",
+    say: "456789 C.L.s to order left eye",
+    number: "456789",
+    expect: [
+      "To order: Order CLs (left)",
+    ],
+  },
+  {
+    about: "CL type kept (dailies) plus recall",
+    say: "567890 order dailies both eyes also recall 1 year",
+    number: "567890",
+    expect: [
+      "To order: Order CLs (dailies, both eyes)",
+      "Records to update: Recall (1 year)",
+    ],
+  },
+  {
+    about: "Toric CLs for one eye",
+    say: "789012 order CLs toric right eye",
+    number: "789012",
+    expect: [
+      "To order: Order CLs (toric, right)",
+    ],
+  },
+  {
+    about: "Notes to finish",
+    say: "678901 finish notes",
+    number: "678901",
+    expect: [
+      "Records to update: Complete record",
+    ],
+  },
 ];

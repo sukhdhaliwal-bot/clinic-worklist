@@ -1,6 +1,6 @@
 // Service worker: keeps the app working offline and blocks every request
 // that isn't to the app's own files. Bump CACHE whenever a file changes.
-const CACHE = "cwl-v1";
+const CACHE = "cwl-v2";
 const FILES = [
   "./",
   "index.html",

@@ -1,6 +1,6 @@
 # Parser test results
 
-23 of 23 passed. Run on 2026-11-09 with `node tests/run-parser-tests.mjs`.
+30 of 30 passed. Run on 2026-11-09 with `node tests/run-parser-tests.mjs`.
 
 Each row is one thing you might say. "Worklist rows" is what the app files it under. Check that each one is what you'd want.
 
@@ -29,3 +29,10 @@ Each row is one thing you might say. "Worklist rows" is what the app files it un
 | 21 | Double oh in the number | seven seven eight nine double oh refer cataract left | 778900 | Referrals to write: Refer: cataract (left) | Pass |
 | 22 | OCT repeat and glaucoma suspect | 102030 o c t repeat 3 months, glaucoma suspect refer routine | 102030 | Records to update: OCT review (3 months)<br>Referrals to write: Refer: glaucoma (routine, "suspect") | Pass |
 | 23 | Unknown phrase with an eye after it | 246802 check dry eye drops, right eye | 246802 | Unsorted: "check dry eye drops, right eye" | Pass |
+| 24 | CL order on its own | 123456 order CLs | 123456 | To order: Order CLs | Pass |
+| 25 | Fields, CL order and record to complete in one | 234567 fields normal, order up contact lenses, complete record | 234567 | Records to update: Fields: normal<br>To order: Order CLs<br>Records to update: Complete record | Pass |
+| 26 | Referral plus a record to complete | 345678 refer cataract right eye routine, records need completing | 345678 | Referrals to write: Refer: cataract (right, routine)<br>Records to update: Complete record | Pass |
+| 27 | Dotted C.L.s with an eye | 456789 C.L.s to order left eye | 456789 | To order: Order CLs (left) | Pass |
+| 28 | CL type kept (dailies) plus recall | 567890 order dailies both eyes also recall 1 year | 567890 | To order: Order CLs (dailies, both eyes)<br>Records to update: Recall (1 year) | Pass |
+| 29 | Toric CLs for one eye | 789012 order CLs toric right eye | 789012 | To order: Order CLs (toric, right) | Pass |
+| 30 | Notes to finish | 678901 finish notes | 678901 | Records to update: Complete record | Pass |

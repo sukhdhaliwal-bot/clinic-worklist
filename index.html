@@ -33,6 +33,7 @@ const KEYWORDS = {
   groups: {
     referrals: "Referrals to write",
     fields: "Fields to book",
+    orders: "To order",
     records: "Records to update",
     unsorted: "Unsorted",
   },
@@ -70,6 +71,28 @@ const KEYWORDS = {
   // A part after "Refer: other" or "Fields: record result" is always kept as its note.
   noteWords: ["iop", "iops", "pressure", "pressures", "va", "vision", "acuity",
               "cdr", "cup disc", "disc", "discs", "reading", "readings"],
+
+  // Simple actions: if any phrase is said, the action is added to its group.
+  // Add your own here: copy a block, give it a new id, label, group and phrases.
+  // Groups: "referrals", "fields", "orders", "records".
+  otherActions: [
+    { id: "cl-order", label: "Order CLs", group: "orders",
+      showWords: ["dailies", "monthlies", "trials", "trial", "toric", "torics", "multifocal", "multifocals"],
+      phrases: ["order cls", "order cl", "order up cls", "order up cl", "order contact lenses",
+                "order up contact lenses", "order contacts", "order lenses", "order up lenses",
+                "order trials", "order trial lenses", "order cl trials", "order dailies",
+                "order monthlies", "reorder cls", "reorder lenses", "re order cls", "re order lenses",
+                "cl order", "cls order", "contact lens order", "cls to order", "cl to order",
+                "lenses to order", "contact lenses to order", "needs cls ordering", "cls need ordering",
+                "lenses need ordering", "order new cls"] },
+    { id: "complete-record", label: "Complete record", group: "records",
+      phrases: ["complete record", "complete records", "record to complete", "records to complete",
+                "record needs completing", "records need completing", "record needs finishing",
+                "finish record", "finish records", "finish notes", "complete notes",
+                "notes to complete", "notes to finish", "notes need finishing", "notes need completing",
+                "write up notes", "write up record", "incomplete record", "record incomplete",
+                "records incomplete", "finish off record", "finish off notes"] },
+  ],
 
   // Letter to GP (checked before referrals, so "refer to GP" is a letter).
   gpLetter: {
@@ -158,6 +181,7 @@ const CWLParser = (() => {
       .replace(/\bo\.?\s?c\.?\s?t\.?(?=\W|$)/gi, " OCT ")
       .replace(/\bi\.?\s?o\.?\s?p\.?(s)?(?=\W|$)/gi, " IOP$1 ")
       .replace(/\bg\.?\s?p\.?(?=\W|$)/gi, " GP ")
+      .replace(/\bc\.?\s?l\.?(s)?(?=\W|$)/gi, " CL$1 ")
       .replace(/\ba\s?&\s?e\b/gi, " A and E ")
       .replace(/&/g, " and ")
       .replace(/(\d+)\s*\/\s*52\b/g, "$1 weeks")
@@ -306,6 +330,17 @@ const CWLParser = (() => {
     const gp = findAny(toks, K.gpLetter.phrases, used);
     if (gp) { mark(used, gp); add("gp-letter", K.gpLetter.label, "referrals", gp); }
 
+    // Simple actions (CL orders, records to complete, your own).
+    for (const oa of K.otherActions) {
+      const h = findAny(toks, oa.phrases, used);
+      if (!h) continue;
+      mark(used, h);
+      // Words worth keeping on the row (e.g. "dailies"), from the phrase or the rest of this part.
+      const shown = (oa.showWords || []).filter((w) => toks.some((t, i) => t.n === w && (!used[i] || (i >= h.start && i <= h.end))));
+      toks.forEach((t, i) => { if (shown.includes(t.n)) used[i] = true; });
+      add(oa.id, oa.label, oa.group, h, shown.length ? { detail: shown.join(", ") } : {});
+    }
+
     // Referrals.
     let refHits = findAll(toks, K.referralWords, used);
     if (!refHits.length) refHits = findAll(toks, K.impliesReferral, used).map((h) => ({ start: h.start, end: h.start - 1 }));
@@ -407,7 +442,7 @@ const CWLParser = (() => {
 
     actions.sort((x, y) => x.at - y.at);
     for (const a of actions) {
-      if (eye && a.id !== "no-action" && a.id !== "recall" && a.id !== "gp-letter") a.eye = eye;
+      if (eye && a.id !== "no-action" && a.id !== "recall" && a.id !== "gp-letter" && a.id !== "complete-record") a.eye = eye;
       if (urgency && a.group === "referrals") a.urgency = urgency;
       if (timing && a.timed) a.timing = timing;
     }
@@ -444,7 +479,7 @@ const CWLParser = (() => {
           continue;
         }
         for (const a of last) {
-          if (r.eye && !a.eye && a.id !== "no-action" && a.id !== "recall" && a.id !== "gp-letter") a.eye = r.eye;
+          if (r.eye && !a.eye && a.id !== "no-action" && a.id !== "recall" && a.id !== "gp-letter" && a.id !== "complete-record") a.eye = r.eye;
           if (r.urgency && !a.urgency && a.group === "referrals") a.urgency = r.urgency;
           if (r.timing && !a.timing && a.timed) a.timing = r.timing;
         }
@@ -595,6 +630,7 @@ main{flex:1;min-height:0;position:relative}
 .mic .mic-hint{font-size:var(--t-small);opacity:.8;max-width:26ch;text-align:center}
 .mic[data-state="listening"]{background:var(--bad);color:#fff}
 .mic[data-state="listening"] .ring{animation:pulse 1.4s var(--ease) infinite}
+.mic[data-state="starting"]{background:var(--surface-2);color:var(--ink)}
 .ring{display:grid;place-items:center;width:132px;height:132px;border-radius:50%;background:rgba(255,255,255,.14)}
 @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(255,255,255,.35)}50%{box-shadow:0 0 0 18px rgba(255,255,255,0)}}
 .heard{min-height:2.9em;margin:var(--s-3) 2px 0;font-size:var(--t-lead);line-height:1.4;color:var(--ink)}
@@ -861,9 +897,9 @@ dialog[open]{animation:up 180ms var(--ease)}
   }
 
   /* ---------- Worklist ---------- */
-  const GROUPS = ["referrals", "fields", "records", "unsorted"];
+  const GROUPS = ["referrals", "fields", "orders", "records", "unsorted"];
   function rows() {
-    const out = { referrals: [], fields: [], records: [], unsorted: [] };
+    const out = { referrals: [], fields: [], orders: [], records: [], unsorted: [] };
     const sorted = [...state.entries].sort((a, b) => a.createdAt - b.createdAt);
     for (const e of sorted) {
       for (const a of e.actions) out[e.numberOk ? a.group : "unsorted"].push({ e, it: a, kind: "action" });
@@ -1072,69 +1108,119 @@ dialog[open]{animation:up 180ms var(--ease)}
   $("tab-list").addEventListener("click", () => show("list"));
 
   /* ---------- Voice: Safari's built-in speech recognition only ---------- */
+  // iPhone quirks this handles:
+  // - the mic takes a moment to open, so words said straight after the tap were lost:
+  //   the button now says "Speak now" only once Safari reports the mic is live;
+  // - Safari sometimes ends a session at once with no error and no words:
+  //   that is retried once automatically, then you're told plainly;
+  // - Safari sometimes never fires "end" after stop: a backstop finishes it.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let rec = null, listening = false, finalText = "", silenceTimer;
+  const SILENCE_MS = 2000;   // stop this long after the last word
+  const NOTHING_MS = 8000;   // give up if nothing at all is heard for this long
+  let rec = null, micState = "idle", finalText = "", interimText = "", timers = {}, startedAt = 0, retried = false, finished = false, gotError = false;
   const mic = $("mic");
+  const LABELS = {
+    idle: ["Tap to dictate", "Say the patient number, then what needs doing", "Start dictating"],
+    starting: ["Getting ready…", "Wait for “Speak now”", "Starting microphone"],
+    listening: ["Speak now", "Pause to finish, or tap to stop", "Stop listening"],
+  };
   function setMic(s) {
-    listening = s === "listening";
+    micState = s;
     mic.dataset.state = s;
-    $("mic-label").textContent = listening ? "Listening…" : "Tap to dictate";
-    $("mic-hint").textContent = listening ? "Pause to finish, or tap to stop" : "Say the patient number, then what needs doing";
-    mic.setAttribute("aria-label", listening ? "Stop listening" : "Start dictating");
+    $("mic-label").textContent = LABELS[s][0];
+    $("mic-hint").textContent = LABELS[s][1];
+    mic.setAttribute("aria-label", LABELS[s][2]);
   }
-  function noSpeech(message) {
+  function clearTimers() { for (const k in timers) clearTimeout(timers[k]); timers = {}; }
+  function noSpeech(message) { clearTimers(); setMic("idle"); openType(message); }
+  function stopRec() {
+    if (!rec) return;
+    try { rec.stop(); } catch (e) {}
+    // Backstop: if Safari never sends "end", finish anyway.
+    clearTimeout(timers.backstop);
+    timers.backstop = setTimeout(() => { try { rec && rec.abort(); } catch (e) {} finish(); }, 2500);
+  }
+  function goLive() {
+    if (micState !== "starting") return;
+    setMic("listening");
+    timers.nothing = setTimeout(stopRec, NOTHING_MS);
+  }
+  function finish() {
+    if (finished) return;
+    finished = true;
+    clearTimers();
+    const text = (finalText + " " + interimText).trim();
+    const quickEmpty = !text && !gotError && Date.now() - startedAt < 2500;
+    rec = null;
+    if (text) { setMic("idle"); addDictation(text); return; }
+    if (quickEmpty && !retried) { retried = true; begin(); return; } // Safari hiccup: try once more
     setMic("idle");
-    openType(message);
+    if (!gotError) {
+      $("heard").textContent = "";
+      showToast("Didn't catch that", "Tap and wait for “Speak now” before speaking.", null, 3500);
+    }
+  }
+  function begin() {
+    finalText = ""; interimText = ""; finished = false; gotError = false;
+    startedAt = Date.now();
+    rec = new SR();
+    rec.lang = "en-GB";
+    rec.interimResults = true;
+    rec.continuous = true;   // we decide when you've finished, not Safari
+    rec.maxAlternatives = 1;
+    // Ask for on-device recognition wherever the browser supports it (Safari ignores this today).
+    try { if ("processLocally" in rec) rec.processLocally = true; } catch (e) {}
+    rec.onaudiostart = goLive;
+    rec.onstart = () => { timers.live = setTimeout(goLive, 600); };
+    rec.onresult = (ev) => {
+      goLive();
+      let f = "", i2 = "";
+      for (let i = 0; i < ev.results.length; i++) {
+        const t = ev.results[i][0].transcript;
+        if (ev.results[i].isFinal) f += t + " "; else i2 += t + " ";
+      }
+      finalText = f.trim(); interimText = i2.trim();
+      $("heard").textContent = (finalText + " " + interimText).trim();
+      clearTimeout(timers.nothing);
+      clearTimeout(timers.silence);
+      timers.silence = setTimeout(stopRec, SILENCE_MS);
+    };
+    rec.onerror = (ev) => {
+      if (ev.error === "aborted") return;
+      if (ev.error === "no-speech") return; // handled in finish()
+      gotError = true;
+      clearTimers();
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        noSpeech("The microphone or Siri & Dictation is turned off for this app. Turn on Settings › Safari › Microphone and Settings › Siri › Dictation, or type instead.");
+      } else if (ev.error === "network") {
+        noSpeech("Apple's dictation couldn't be reached. Type instead for now.");
+      } else if (ev.error === "audio-capture") {
+        noSpeech("The microphone is busy (maybe a call or another app). Type instead for now.");
+      } else {
+        noSpeech("Speech recognition stopped (" + ev.error + "). Type instead for now.");
+      }
+    };
+    rec.onend = finish;
+    setMic("starting");
+    try { rec.start(); }
+    catch (e) { rec = null; gotError = true; noSpeech("Speech recognition couldn't start. Type instead for now."); }
+    // If Safari never says it has started, stop waiting.
+    timers.stuck = setTimeout(() => { if (micState === "starting") { try { rec && rec.abort(); } catch (e) {} finish(); } }, 4000);
   }
   function start() {
     if (!SR) return noSpeech("Speech recognition isn't available in this browser. Type instead, or open the app in Safari.");
     $("mic-notice").hidden = true;
-    finalText = "";
     $("heard").textContent = "";
-    rec = new SR();
-    rec.lang = "en-GB";
-    rec.interimResults = true;
-    rec.continuous = false;
-    rec.maxAlternatives = 1;
-    // Ask for on-device recognition wherever the browser supports it (Safari ignores this today).
-    try { if ("processLocally" in rec) rec.processLocally = true; } catch (e) {}
-    rec.onresult = (ev) => {
-      let interim = "";
-      finalText = "";
-      for (let i = 0; i < ev.results.length; i++) {
-        const t = ev.results[i][0].transcript;
-        if (ev.results[i].isFinal) finalText += t; else interim += t;
-      }
-      $("heard").textContent = (finalText + " " + interim).trim();
-      clearTimeout(silenceTimer);
-      silenceTimer = setTimeout(() => { try { rec.stop(); } catch (e) {} }, 1800);
-    };
-    rec.onerror = (ev) => {
-      clearTimeout(silenceTimer);
-      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-        noSpeech("The microphone or Siri & Dictation is turned off for this app. Turn on Settings › Safari › Microphone and Settings › Siri › Dictation, or type instead.");
-      } else if (ev.error === "no-speech") {
-        setMic("idle"); $("heard").textContent = ""; showToast("Didn't hear anything", "Tap the button and try again.", null, 2500);
-      } else if (ev.error === "network") {
-        noSpeech("Apple's dictation couldn't be reached. Type instead for now.");
-      } else if (ev.error !== "aborted") {
-        noSpeech("Speech recognition stopped (" + ev.error + "). Type instead for now.");
-      }
-    };
-    rec.onend = () => {
-      clearTimeout(silenceTimer);
-      const text = (finalText || $("heard").textContent).trim();
-      setMic("idle");
-      if (text) addDictation(text);
-      rec = null;
-    };
-    try { rec.start(); setMic("listening"); }
-    catch (e) { noSpeech("Speech recognition couldn't start. Type instead for now."); }
+    retried = false;
+    begin();
   }
   mic.addEventListener("click", () => {
-    if (listening && rec) { try { rec.stop(); } catch (e) {} return; }
+    if (micState === "listening") return stopRec();
+    if (micState === "starting") return; // ignore double taps while the mic opens
     start();
   });
+  // Leaving the app mid-dictation: keep what was heard so far.
+  document.addEventListener("visibilitychange", () => { if (document.hidden && rec) stopRec(); });
 
   /* ---------- Start up ---------- */
   purgeOld();
