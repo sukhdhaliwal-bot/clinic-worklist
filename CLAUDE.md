@@ -33,7 +33,7 @@ Example dictations: "123456 refer cataract right eye routine", "234567 repeat vi
 ## Tech rules
 
 - One self-contained `index.html` with vanilla JS. No React, no build step, no npm packages in the app.
-- `manifest.webmanifest` + `sw.js` so it installs to the home screen and works offline. Bump `CACHE` in `sw.js` whenever any cached file changes.
+- `manifest.webmanifest` + `sw.js` so it installs to the home screen and works offline. Bump `CACHE` in `sw.js` whenever any cached file changes, and the version number shown in Settings to match.
 - The parser lives in `<script id="parser">` inside `index.html` and must stay free of DOM code, because `tests/run-parser-tests.mjs` extracts and runs it in Node.
 - Target: iPhone Safari, also from the home screen. Works at 360px wide with no sideways scroll. Tap targets at least 44px. Inputs at least 16px so iOS doesn't zoom. Never disable zoom.
 

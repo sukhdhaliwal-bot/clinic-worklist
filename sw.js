@@ -1,6 +1,7 @@
 // Service worker: keeps the app working offline and blocks every request
-// that isn't to the app's own files. Bump CACHE whenever a file changes.
-const CACHE = "cwl-v5";
+// that isn't to the app's own files. Bump CACHE whenever a file changes,
+// and the version number in Settings (index.html) to match.
+const CACHE = "cwl-v6";
 const FILES = [
   "./",
   "index.html",
@@ -38,7 +39,9 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     caches.open(CACHE).then(async (cache) => {
       const hit = await cache.match(e.request, { ignoreSearch: true });
-      const fresh = fetch(e.request)
+      // no-cache: skip the browser's own 10-minute cache so a new version is picked up
+      // on the next open (each dictation reopens the page, so that's soon).
+      const fresh = fetch(e.request, { cache: "no-cache" })
         .then((res) => { if (res.ok) cache.put(e.request, res.clone()); return res; })
         .catch(() => hit);
       return hit || fresh;

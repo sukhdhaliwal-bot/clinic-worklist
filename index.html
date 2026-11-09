@@ -736,6 +736,7 @@ dialog[open]{animation:up 180ms var(--ease)}
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
 }
+  .version { margin: 8px 0 0; font-size: 13px; color: var(--muted); text-align: center; }
 </style>
 </head>
 <body>
@@ -833,6 +834,7 @@ dialog[open]{animation:up 180ms var(--ease)}
       <p><strong>Stays on this phone.</strong> The worklist is saved only in this phone's browser storage. The app sends nothing anywhere and keeps no audio, only the text.</p>
       <p><strong>Speech is turned into text by Apple</strong> (Safari's built-in dictation). Depending on your iPhone and iOS version, Apple may do this on the phone or on its servers, the same as keyboard dictation.</p>
     </div>
+    <p class="version">Version 6 (fresh mic each time)</p>
     <div class="row"><button class="btn primary" value="done" autofocus>Done</button></div>
   </form>
 </dialog>
