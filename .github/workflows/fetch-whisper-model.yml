@@ -15,7 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      # Plain git instead of the checkout action (the action lookup kept failing on GitHub's side).
+      - name: Get the branch
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git clone --depth 1 --branch whisper-test "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" .
       - name: Download from Hugging Face
         run: |
           set -euo pipefail
