@@ -10,7 +10,7 @@ The app has to be opened from a web address once. After that it works from the h
 2. Tap the **Share** button (the square with an arrow pointing up) at the bottom of the screen.
 3. Scroll down and tap **Add to Home Screen**.
 4. Leave the name as "Worklist" and tap **Add**.
-5. Open it from the new icon. The first time you tap the mic, iPhone asks to use the microphone and speech recognition. Tap **Allow**.
+5. Open it from the new icon **while on Wi-Fi** the first time: it downloads the speech model (about 75 MB) once and keeps it. The first time you tap the mic, iPhone asks to use the microphone. Tap **Allow**.
 
 If the mic button does nothing or shows a message:
 
@@ -20,7 +20,7 @@ If the mic button does nothing or shows a message:
 
 ## Using it
 
-- **Dictate:** tap, wait for the button to say **Speak now**, then say e.g. "123456 refer cataract right eye routine" and pause. It saves by itself. Tap **Undo** on the message if it misheard. The screen blinks once after each dictation: that is the app giving the mic a fresh start, and your list is safe.
+- **Dictate:** tap the big button, say e.g. "123456 refer cataract right eye routine", then pause. It shows "Working…" for a moment and saves by itself. Tap **Undo** on the message if it misheard. If it ever misbehaves, Settings › "Big button uses" can switch to **Keyboard mic** (tap the big button, then the keyboard's mic) or Safari speech.
 - **CLs and records:** say "order CLs" (or "order dailies", "order contact lenses") and it goes under **To order**. Say "complete record" or "finish notes" and it goes under **Records to update**.
 - **Same patient again:** say the same number again the same day and the new actions are added to that patient.
 - **Worklist:** tick things off as you do them, then tap **Clear ticked**. Anything older than 7 days is deleted automatically (change this in Settings).
@@ -38,4 +38,4 @@ Add an example of the new phrase to `tests/parser-cases.js` so it stays tested. 
 
 ## Where the voice goes
 
-The app uses Safari's built-in speech recognition (Apple dictation). The app itself never sends anything anywhere and never keeps audio, only the text. Apple turns the speech into text: depending on the iPhone model, iOS version and language, that happens on the phone or on Apple's servers, the same as keyboard dictation. A web page can't force it to stay on the phone. See `privacy-note-for-specsavers.md`.
+By default the app turns speech into text **on the phone itself**, using OpenAI's Whisper model stored inside the app. The audio never leaves the phone and is thrown away as soon as it has been turned into text. If you switch to Keyboard mic or Safari speech in Settings, Apple does the speech to text instead, which may happen on Apple's servers. See `privacy-note-for-specsavers.md`.
