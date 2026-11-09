@@ -30,6 +30,16 @@
 const KEYWORDS = {
   numberLength: 6, // patient numbers are always this many digits
 
+  // Words the speech-to-text sometimes gets wrong, and what you meant.
+  // Left: what it wrote (lower case). Right: the word to use instead. Add your own.
+  soundsLike: {
+    "glycolma": "glaucoma", "glaucomer": "glaucoma", "glocoma": "glaucoma", "gloucoma": "glaucoma",
+    "glaukoma": "glaucoma", "glaucomas": "glaucoma", "glycoma": "glaucoma", "glucoma": "glaucoma",
+    "cataracs": "cataracts", "catarac": "cataract",
+    "ocd": "OCT", "o c d": "OCT",
+    "contact lenses": "CLs", "contact lens": "CLs",
+  },
+
   groups: {
     referrals: "Referrals to write",
     fields: "Fields to book",
@@ -175,8 +185,16 @@ const CWLParser = (() => {
   const split = (p) => p.split(" ");
 
   // 1. Clean up spoken/dictated quirks before splitting into words.
+  function soundsLikeFix(text) {
+    let t = String(text || "");
+    for (const [heard, meant] of Object.entries(K.soundsLike || {})) {
+      const re = new RegExp("\\b" + heard.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+") + "\\b", "gi");
+      t = t.replace(re, meant);
+    }
+    return t;
+  }
   function preclean(text) {
-    return String(text || "")
+    return soundsLikeFix(text)
       .replace(/\bv\.?\s?f\.?(s)?(?=\W|$)/gi, " VF$1 ")
       .replace(/\bo\.?\s?c\.?\s?t\.?(?=\W|$)/gi, " OCT ")
       .replace(/\bi\.?\s?o\.?\s?p\.?(s)?(?=\W|$)/gi, " IOP$1 ")
@@ -849,7 +867,7 @@ dialog[open]{animation:up 180ms var(--ease)}
       <p><strong>Stays on this phone.</strong> The worklist is saved only in this phone's browser storage. The app sends nothing anywhere and keeps no audio, only the text.</p>
       <p><strong>Speech is turned into text by Apple</strong> (Safari's built-in dictation). Depending on your iPhone and iOS version, Apple may do this on the phone or on its servers, the same as keyboard dictation.</p>
     </div>
-    <p class="version">Version 8 (Whisper on this phone)</p>
+    <p class="version">Version 9 (Whisper number fixes)</p>
     <div class="row"><button class="btn primary" value="done" autofocus>Done</button></div>
   </form>
 </dialog>
@@ -1402,7 +1420,9 @@ dialog[open]{animation:up 180ms var(--ease)}
     // "you" or "thank you" in silence.
     function done(text) {
       setMic("idle");
-      let t = String(text || "").replace(/(\d)[,\s](?=\d{3}\b)/g, "$1").replace(/[.!]+$/, "").trim();
+      let t = String(text || "").replace(/[.!]+$/, "").trim();
+      // "987-654", "98 76 54" or "987,654" at the start: write the patient number as one.
+      t = t.replace(/^((?:\d[\s,.\-]*){5}\d)(?!\d)[,.]?/, (m, g) => g.replace(/\D/g, ""));
       if (/^[\s.,!?]*(you|thank you|thanks for watching|bye)?[\s.,!?]*$/i.test(t)) t = "";
       if (!t) return showToast("Didn't hear anything", "Tap and speak, then pause.", null, 3500);
       $("heard").textContent = t;

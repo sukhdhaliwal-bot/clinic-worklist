@@ -258,4 +258,20 @@ export default [
       "Records to update: Complete record",
     ],
   },
+  {
+    about: "Whisper: number with a hyphen, glaucoma misheard",
+    say: "987-654, refer glycolma, routine",
+    number: "987654",
+    expect: [
+      "Referrals to write: Refer: glaucoma (routine)",
+    ],
+  },
+  {
+    about: "Whisper: number split by spaces, OCT heard as OCD",
+    say: "98 76 54 OCD review",
+    number: "987654",
+    expect: [
+      "Records to update: OCT review",
+    ],
+  },
 ];

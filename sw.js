@@ -1,7 +1,7 @@
 // Service worker: keeps the app working offline and blocks every request
 // that isn't to the app's own files. Bump CACHE whenever a file changes,
 // and the version number in Settings (index.html) to match.
-const CACHE = "cwl-v8";
+const CACHE = "cwl-v9";
 // The speech engine and Whisper models (about 100 MB) live in their own cache so an
 // app update doesn't download them again. Bump this only if those files change.
 const WHISPER_CACHE = "cwl-whisper-1";
